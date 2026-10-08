@@ -78,20 +78,24 @@ with tab_prep:
     df_prep = pd.DataFrame()
     
     try:
-        # УБИВАЕМ КЭШ: добавляем уникальный номер секунды t= к ссылке
         nocache_url = f"{API_URL}?sheet=Скупка&t={time.time()}"
         response = requests.get(nocache_url)
         data = response.json()
         
         if len(data) > 0:
-            if isinstance(data, list):
-                df_prep = pd.DataFrame(data[1:], columns=data)
+            if isinstance(data, list) and isinstance(data[0], list):
+                df_prep = pd.DataFrame(data[1:], columns=data[0])
             else:
-                df_prep = pd.DataFrame(data, columns=headers[:len(data) if data else 7])
+                df_prep = pd.DataFrame(data)
+                # Если заголовки не встали автоматически, принудительно даем имена по порядку из паспорта
+                while len(df_prep.columns) > len(headers):
+                    headers.append(f"Колонка_{len(headers)+1}")
+                df_prep.columns = headers[:len(df_prep.columns)]
     except:
         df_prep = pd.DataFrame()
         
     if not df_prep.empty:
+        # Статус — это всегда 7-я колонка (индекс 6)
         col_idx = 6 if len(df_prep.columns) > 6 else len(df_prep.columns) - 1
         status_col = df_prep.columns[col_idx]
         
@@ -106,10 +110,17 @@ with tab_prep:
             st.markdown("---")
             st.markdown("### 🚀 Выставить аппарат на витрину")
             
-            id_col = df_prep.columns
-            model_col = df_prep.columns if len(df_prep.columns) > 2 else df_prep.columns
+            # Четко берем 1-ю колонку как ID и 3-ю колонку как Модель, без привязки к их текстовым именам
+            c_id = df_prep.columns[0]
+            c_model = df_prep.columns[2] if len(df_prep.columns) > 2 else df_prep.columns[0]
             
-            options_prep = {f"№{row[id_col]} - {row[model_col]}": row[id_col] for _, row in in_prep.iterrows()}
+            # Собираем список для выбора, СТРОГО превращая значения в обычные строки (.item() или str)
+            options_prep = {}
+            for _, row in in_prep.iterrows():
+                val_id = str(row[c_id]).strip()
+                val_model = str(row[c_model]).strip()
+                options_prep[f"№{val_id} - {val_model}"] = val_id
+                
             selected_prep = st.selectbox("Выберите устройство для оценки:", list(options_prep.keys()), key="sb_prep")
             selected_prep_id = options_prep[selected_prep]
             
@@ -119,10 +130,13 @@ with tab_prep:
             with col1:
                 if st.button("✅ Готов к продаже (На склад)"):
                     if price_sell_ready > 0:
+                        # Принудительно очищаем ID и превращаем в обычное число (int), чтобы убрать ошибку Series
+                        clean_id = int(float(selected_prep_id)) if selected_prep_id.replace('.','',1).isdigit() else selected_prep_id
+                        
                         payload = {
                             "action": "update",
                             "sheet": "Скупка",
-                            "id": int(selected_prep_id) if str(selected_prep_id).isdigit() else selected_prep_id,
+                            "id": clean_id,
                             "status": "На складе",
                             "price_sell": price_sell_ready 
                         }
@@ -130,8 +144,10 @@ with tab_prep:
                             res = requests.post(API_URL, json=payload)
                             if res.text == "Success":
                                 st.success("Устройство успешно выставлено на продажу!")
-                                time.sleep(1) # Небольшая пауза, чтобы Гугл успел сохранить изменения
+                                time.sleep(1)
                                 st.rerun()
+                            else:
+                                st.error(f"Ошибка шлюза таблицы: {res.text}")
                         except Exception as e:
                             st.error(f"Ошибка связи: {e}")
                     else:
@@ -149,15 +165,17 @@ with tab3:
     df_skupka = pd.DataFrame()
     
     try:
-        # УБИВАЕМ КЭШ И ТУТ
         nocache_url_s = f"{API_URL}?sheet=Скупка&t={time.time()}"
         response = requests.get(nocache_url_s)
         data = response.json()
         if len(data) > 0:
-            if isinstance(data, list):
-                df_skupka = pd.DataFrame(data[1:], columns=data)
+            if isinstance(data, list) and isinstance(data[0], list):
+                df_skupka = pd.DataFrame(data[1:], columns=data[0])
             else:
-                df_skupka = pd.DataFrame(data, columns=headers[:len(data) if data else 7])
+                df_skupka = pd.DataFrame(data)
+                while len(df_skupka.columns) > len(headers):
+                    headers.append(f"Колонка_{len(headers)+1}")
+                df_skupka.columns = headers[:len(df_skupka.columns)]
     except:
         df_skupka = pd.DataFrame()
         
@@ -173,40 +191,26 @@ with tab3:
             st.dataframe(in_stock, use_container_width=True)
             
             st.markdown("---")
-            id_col_s = df_skupka.columns
-            model_col_s = df_skupka.columns if len(df_skupka.columns) > 2 else df_skupka.columns
+            c_id_s = df_skupka.columns[0]
+            c_model_s = df_skupka.columns[2] if len(df_skupka.columns) > 2 else df_skupka.columns[0]
             
-            options = {f"№{row[id_col_s]} - {row[model_col_s]}": row[id_col_s] for _, row in in_stock.iterrows()}
+            options = {}
+            for _, row in in_stock.iterrows():
+                val_id = str(row[c_id_s]).strip()
+                val_model = str(row[c_model_s]).strip()
+                options[f"№{val_id} - {val_model}"] = val_id
+                
             selected = st.selectbox("Выберите для продажи:", list(options.keys()), key="sb_sell")
             selected_id = options[selected]
             
-            chosen_row = in_stock[in_stock[id_col_s] == selected_id]
+            chosen_row = in_stock[in_stock[c_id_s].astype(str).str.strip() == str(selected_id).strip()]
             current_price = 0
             if not chosen_row.empty:
-                for col in chosen_row.columns:
-                    if str(col).strip().lower() in ["цена_продажи", "цена продажи", "price_sell"]:
-                        # Извлекаем чистое значение цены
-                        current_price = chosen_row[col].values[0] if hasattr(chosen_row[col], 'values') else chosen_row[col]
-                        break
-            
-            st.markdown(f"**Стоимость к оплате:** `{current_price} руб.`")
-            
-            if st.button("Оформить продажу", type="primary"):
-                current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
-                payload = {
-                    "action": "update",
-                    "sheet": "Скупка",
-                    "id": int(selected_id) if str(selected_id).isdigit() else selected_id,
-                    "status": "Продано",
-                    "date_sell": current_time
-                }
-                try:
-                    res = requests.post(API_URL, json=payload)
-                    if res.text == "Success":
-                        st.success("Продано!")
-                        time.sleep(1)
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Ошибка: {e}")
-    else:
-        st.info("На складе пока пусто.")
+                # Цена продажи обычно идет 8-й по счету (индекс 7)
+                if len(chosen_row.columns) > 7:
+                    val_p = chosen_row.iloc[0, 7]
+                    current_price = val_p if pd.notna(val_p) else 0
+                else:
+                    for col in chosen_row.columns:
+                        if str(col).strip().lower() in ["цена_продажи", "цена продажи", "price_sell"]:
+                            current_price = chosen_row[col].values[0]
