@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 import json
 import time
@@ -10,6 +10,35 @@ st.title("📱 Учет Скупки и Ремонта")
 
 # ТВОЙ АПИ-ШЛЮЗ НАСТОЯЩИЙ
 API_URL = "https://script.google.com/macros/s/AKfycbypt3LA1wLZZ-iitNH3x-3ElZrcMVuYm-7od43EQviYsuQcVGB6UV3YVu15tK1OOFnJ/exec"
+
+# ТОЧЕЧНАЯ ФУНКЦИЯ ДЛЯ ИСПРАВЛЕНИЯ ВРЕМЕНИ НА МОСКОВСКОЕ
+def format_date_to_moscow(date_val):
+    val_str = str(date_val).strip()
+    if not val_str or val_str == "None" or val_str == "":
+        return ""
+    
+    # Если это кривой формат Google с буквами T и Z (например, 2026-10-08T11:45:00.000Z)
+    if "t" in val_str.lower() or "z" in val_str.lower():
+        try:
+            clean_str = val_str.replace("T", " ").replace("t", " ").replace("Z", "").replace("z", "")
+            if "." in clean_str:
+                clean_str = clean_str.split(".")[0]
+            
+            # Читаем системную дату и ПРИБАВЛЯЕМ 3 ЧАСА для МСК
+            dt = datetime.strptime(clean_str, "%Y-%m-%d %H:%M:%S")
+            dt_moscow = dt + timedelta(hours=3)
+            return dt_moscow.strftime("%d.%m.%Y %H:%M")
+        except:
+            pass
+            
+    # Если дата записана в стандартном формате (ГГГГ-ММ-ДД ЧЧ:ММ)
+    try:
+        dt = datetime.strptime(val_str, "%Y-%m-%d %H:%M")
+        return dt.strftime("%d.%m.%Y %H:%M")
+    except:
+        pass
+        
+    return val_str
 
 # Инициализируем локальное хранилище в памяти приложения
 if "df_skupka_local" not in st.session_state:
@@ -28,22 +57,19 @@ def load_data_from_google():
         parsed_rows = []
         if isinstance(data, list) and len(data) > 0:
             for row in data:
-                # Если строчка пустая или это заголовок таблицы из Google, пропускаем её
                 if not row or not isinstance(row, list):
                     continue
-                first_cell = str(row[0]).strip().lower()
+                
+                first_cell = str(row[0]).strip().lower() if len(row) > 0 else ""
                 if first_cell in ["id", "ид", "идентификатор", ""]:
                     continue
                 
-                # Достраиваем строку пустыми ячейками, если в таблице заполнено не все
                 clean_row = [str(cell).strip() for cell in row]
                 while len(clean_row) < len(headers):
                     clean_row.append("")
                 
-                # Берем только первые 8 ячеек строго по нашему паспорту
                 parsed_rows.append(clean_row[:len(headers)])
                 
-        # Собираем чистейший DataFrame БЕЗ мульти-индексов и скрытой каши
         return pd.DataFrame(parsed_rows, columns=headers)
     except:
         pass
@@ -134,13 +160,15 @@ with tab_prep:
     st.header("Техника на подготовке к продаже")
     
     if not df_main.empty:
-        in_prep = df_main[df_main["Статус"] == "Подготовка к продаже"]
+        in_prep = df_main[df_main["Статус"] == "Подготовка к продаже"].copy()
         
         if in_prep.empty:
             st.info("Сейчас нет техники на подготовке к продаже.")
         else:
+            # ПРИМЕНЯЕМ ИСПРАВЛЕНИЕ ДАТЫ НА МОСКОВСКОЕ ВРЕМЯ ПЕРЕД ВЫВОДОМ ТАБЛИЦЫ
+            in_prep["Дата"] = in_prep["Дата"].apply(format_date_to_moscow)
+            
             st.markdown("### 📋 Список устройств в работе:")
-            # Идеально чистая витрина без индексов
             st.dataframe(in_prep[["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки"]], use_container_width=True, hide_index=True)
             
             st.markdown("---")
@@ -163,7 +191,6 @@ with tab_prep:
                     if price_sell_ready > 0:
                         clean_id = int(float(selected_prep_id)) if selected_prep_id.replace('.','',1).isdigit() else selected_prep_id
                         
-                        # Мгновенно обновляем локально статус и цену продажи
                         df_main.loc[df_main["ID"] == str(selected_prep_id).strip(), "Статус"] = "На складе"
                         df_main.loc[df_main["ID"] == str(selected_prep_id).strip(), "Цена_Продажи"] = str(price_sell_ready)
                         st.session_state["df_skupka_local"] = df_main
@@ -195,26 +222,7 @@ with tab3:
     st.header("Продажа товаров со склада")
     
     if not df_main.empty:
-        in_stock = df_main[df_main["Статус"] == "На складе"]
+        in_stock = df_main[df_main["Статус"] == "На складе"].copy()
         if in_stock.empty:
             st.info("На складе пусто.")
         else:
-            st.markdown("### 🏪 Товары на витрине:")
-            st.dataframe(in_stock[["ID", "Дата", "Модель", "Характеристики", "Цена_Продажи"]], use_container_width=True, hide_index=True)
-            
-            st.markdown("---")
-            st.markdown("### 💰 Оформление сделки")
-            
-            options = {}
-            for _, row in in_stock.iterrows():
-                val_id = str(row["ID"]).strip()
-                val_model = str(row["Модель"]).strip()
-                options[f"№{val_id} - {val_model}"] = val_id
-                
-            selected = st.selectbox("Выберите для продажи:", list(options.keys()), key="sb_sell")
-            selected_id = options[selected]
-            
-            chosen_row = in_stock[in_stock["ID"] == str(selected_id).strip()]
-            current_price = "0"
-            if not chosen_row.empty:
-                current_price = str(chosen_row["Цена_Продажи"].values[0])
