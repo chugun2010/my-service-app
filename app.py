@@ -41,7 +41,6 @@ def to_float(value) -> float:
 
 
 def clean_id_for_api(val):
-    """Для API: числа -> int, строки (S-0001) -> строка."""
     s = str(val).strip()
     try:
         return int(float(s))
@@ -50,7 +49,6 @@ def clean_id_for_api(val):
 
 
 def next_shop_id(df) -> str:
-    """Следующий ID магазина: S-0001, S-0002, ..."""
     max_num = 0
     for v in df["ID"].astype(str):
         v = v.strip()
@@ -65,7 +63,6 @@ def next_shop_id(df) -> str:
 
 
 def next_repair_id() -> str:
-    """Следующий ID ремонта: R-0001, R-0002, ... (загружает лист Ремонт)."""
     try:
         url = f"{API_URL}?sheet=Ремонт&t={time.time()}"
         r = requests.get(url, timeout=5)
@@ -100,8 +97,30 @@ if "need_reload" not in st.session_state:
 if "section" not in st.session_state:
     st.session_state["section"] = "shop"
 
+# ← НОВОЕ: очередь флеш-сообщений
+if "flash" not in st.session_state:
+    st.session_state["flash"] = []   # список кортежей (тип, текст)
 
-# Заголовки листа "Скупка" — 11 колонок
+
+def flash(kind: str, text: str):
+    """kind: 'success' | 'info' | 'warning' | 'error'"""
+    st.session_state["flash"].append((kind, text))
+
+
+def show_flash():
+    """Показывает все накопленные сообщения и очищает очередь."""
+    for kind, text in st.session_state["flash"]:
+        if kind == "success":
+            st.success(text)
+        elif kind == "info":
+            st.info(text)
+        elif kind == "warning":
+            st.warning(text)
+        else:
+            st.error(text)
+    st.session_state["flash"] = []
+
+
 SKUPKA_HEADERS = [
     "ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики",
     "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи",
@@ -168,9 +187,13 @@ with col_btn_shop:
 
 st.markdown("---")
 
+# ← НОВОЕ: показываем накопленные уведомления СРАЗУ под шапкой
+show_flash()
+
 if st.button("🔄 Синхронизировать с Google Таблицей"):
     st.session_state["df_skupka_local"] = load_data_from_google()
     st.session_state["need_reload"] = False
+    flash("success", "✅ Данные успешно синхронизированы с Google Таблицей.")
     st.rerun()
 
 if st.session_state["df_skupka_local"] is None or st.session_state["need_reload"]:
@@ -208,18 +231,11 @@ if st.session_state["section"] == "repair":
                     with st.spinner("Сохраняем ремонт в Google..."):
                         try:
                             requests.post(API_URL, json=payload, timeout=5)
-                            st.success(f"Заказ №{new_id} успешно сохранен!")
+                            flash("success", f"✅ Ремонт №{new_id} принят и сохранён в таблице.")
                         except Exception:
-                            st.success(f"Заказ №{new_id} отправлен в таблицу!")
+                            flash("warning", f"⚠️ Ремонт №{new_id} сформирован, но, возможно, не ушёл в Google. Проверь таблицу.")
 
-                    st.markdown("### 🖨 КВИТАНЦИЯ О ПРИЕМКЕ")
-                    st.info(
-                        f"**ЗАКАЗ №{new_id}**\n\n"
-                        f"**Клиент:** {client}\n"
-                        f"**Телефон:** {phone}\n"
-                        f"**Устройство:** {device}\n"
-                        f"**Неисправность:** {issue}"
-                    )
+                    st.rerun()
                 else:
                     st.error("Заполните ФИО, телефон и устройство!")
 
@@ -247,7 +263,6 @@ else:
                     current_time = now_msk_str()
                     new_id = next_shop_id(df_main)
 
-                    # row: 11 колонок
                     payload = {
                         "action": "append",
                         "sheet": "Скупка",
@@ -260,13 +275,21 @@ else:
                     df_main.loc[len(df_main)] = new_row
                     st.session_state["df_skupka_local"] = df_main
 
-                    with st.spinner("Записываем выкуп техники..."):
+                    with st.spinner("Записываем выкуп в Google Таблицу..."):
                         try:
                             requests.post(API_URL, json=payload, timeout=5)
+                            flash(
+                                "success",
+                                f"✅ Товар {new_id} выкуплен за {price_buy} ₽. "
+                                f"Отправлен на подготовку к продаже.",
+                            )
                         except Exception:
-                            pass
+                            flash(
+                                "warning",
+                                f"⚠️ Товар {new_id} добавлен локально, но не ушёл в Google. "
+                                f"Проверь таблицу и синхронизируй.",
+                            )
 
-                    st.success(f"Устройство №{new_id} добавлено в подготовку!")
                     st.rerun()
                 else:
                     st.error("Заполните модель/IMEI/SN и цену закупки!")
@@ -304,7 +327,6 @@ else:
                 )
                 selected_prep_id = options_prep[selected_prep]
 
-                # Достаём закупочную цену выбранного товара
                 chosen_prep = in_prep[in_prep["ID"] == str(selected_prep_id).strip()]
                 buy_price_here = 0.0
                 if not chosen_prep.empty:
@@ -360,10 +382,19 @@ else:
                             with st.spinner("Переносим на витрину склада..."):
                                 try:
                                     requests.post(API_URL, json=payload, timeout=5)
+                                    flash(
+                                        "success",
+                                        f"✅ Товар №{selected_prep_id} перемещён на витрину. "
+                                        f"Цена продажи: {price_sell_ready} ₽, "
+                                        f"запчасти: {parts_cost_ready} ₽.",
+                                    )
                                 except Exception:
-                                    pass
+                                    flash(
+                                        "warning",
+                                        f"⚠️ Товар №{selected_prep_id} обновлён локально, "
+                                        f"но не ушёл в Google. Проверь таблицу.",
+                                    )
 
-                            st.success("Устройство перемещено на витрину продаж!")
                             st.rerun()
                         else:
                             st.error("Укажите цену продажи!")
@@ -480,14 +511,18 @@ else:
                             with st.spinner("Оформляем продажу..."):
                                 try:
                                     requests.post(API_URL, json=payload, timeout=5)
+                                    flash(
+                                        "success",
+                                        f"✅ Товар №{selected_id} продан за {final_price:.0f} ₽. "
+                                        f"Гарантия: {warranty}. Прибыль: {profit_preview:.0f} ₽.",
+                                    )
                                 except Exception:
-                                    pass
+                                    flash(
+                                        "warning",
+                                        f"⚠️ Товар №{selected_id} обновлён локально, "
+                                        f"но не ушёл в Google. Проверь таблицу.",
+                                    )
 
-                            st.success(
-                                f"Товар №{selected_id} продан за {final_price:.0f} ₽ "
-                                f"({sale_time}). Гарантия: {warranty}. "
-                                f"Прибыль: {profit_preview:.0f} ₽"
-                            )
                             st.rerun()
 
                 with col2:
@@ -508,7 +543,6 @@ else:
             if sold.empty:
                 st.info("Продаж ещё не было.")
             else:
-                # Безопасно парсим дату (пустые/битые -> NaT -> выбрасываем)
                 sold["_sale_date"] = pd.to_datetime(
                     sold["Дата продажи"], errors="coerce"
                 ).dt.date
