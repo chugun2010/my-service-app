@@ -18,8 +18,7 @@ def now_msk_str() -> str:
 
 
 def normalize_date(value) -> str:
-    """Приводит дату из Google (ISO UTC) к виду 'ГГГГ-ММ-ДД ЧЧ:ММ' по Москве.
-    Если значение пустое или не парсится — возвращает как есть."""
+    """ISO UTC из Google -> 'ГГГГ-ММ-ДД ЧЧ:ММ' по Москве."""
     if value is None:
         return ""
     s = str(value).strip()
@@ -30,6 +29,19 @@ def normalize_date(value) -> str:
         return dt.strftime("%Y-%m-%d %H:%M")
     except Exception:
         return s
+
+
+def to_float(value) -> float:
+    """Аккуратно превращает значение в float (для расчёта прибыли)."""
+    if value is None:
+        return 0.0
+    s = str(value).strip().replace(" ", "").replace(",", ".")
+    if s == "":
+        return 0.0
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
 
 
 # ТВОЙ АПИ-ШЛЮЗ
@@ -46,13 +58,15 @@ if "need_reload" not in st.session_state:
     st.session_state["need_reload"] = True
 
 
+# Заголовки листа "Скупка" — ВАЖНО: должны совпадать с Google Таблицей
+SKUPKA_HEADERS = [
+    "ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики",
+    "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи",
+]
+
+
 # Функция сбора чистой таблицы вручную по строкам
 def load_data_from_google() -> pd.DataFrame:
-    headers = [
-        "ID", "Дата", "Модель", "Характеристики",
-        "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи",
-    ]
-
     try:
         nocache_url = f"{API_URL}?sheet=Скупка&t={time.time()}"
         response = requests.get(nocache_url, timeout=5)
@@ -70,21 +84,21 @@ def load_data_from_google() -> pd.DataFrame:
                     continue
 
                 clean_row = [str(cell).strip() for cell in row]
-                while len(clean_row) < len(headers):
+                while len(clean_row) < len(SKUPKA_HEADERS):
                     clean_row.append("")
 
-                parsed_rows.append(clean_row[: len(headers)])
+                parsed_rows.append(clean_row[: len(SKUPKA_HEADERS)])
 
-        df = pd.DataFrame(parsed_rows, columns=headers)
+        df = pd.DataFrame(parsed_rows, columns=SKUPKA_HEADERS)
 
         # Нормализуем дату в московское время
-        if not df.empty and "Дата" in df.columns:
-            df["Дата"] = df["Дата"].apply(normalize_date)
+        if not df.empty and "Дата выкупа" in df.columns:
+            df["Дата выкупа"] = df["Дата выкупа"].apply(normalize_date)
 
         return df
 
     except Exception:
-        return pd.DataFrame(columns=headers)
+        return pd.DataFrame(columns=SKUPKA_HEADERS)
 
 
 # Кнопка ручной синхронизации
@@ -112,13 +126,13 @@ with tab1:
     with st.form("repair_form", clear_on_submit=True):
         client = st.text_input("ФИО Клиента")
         phone = st.text_input("Номер телефона")
-        device = st.text_input("Устройство (Модель, IMEI)")
+        device = st.text_input("Устройство (Модель, IMEI/SN)")
         issue = st.text_area("Неисправность и внешний вид")
         submit_repair = st.form_submit_button("Принять в ремонт")
 
         if submit_repair:
             if client and phone and device:
-                current_time = now_msk_str()          # ← московское время
+                current_time = now_msk_str()
                 new_id = int(datetime.now().timestamp()) % 100000
 
                 payload = {
@@ -150,7 +164,7 @@ with tab2:
     st.header("Оформить выкуп")
 
     with st.form("buyout_form", clear_on_submit=True):
-        model = st.text_input("Модель")
+        model = st.text_input("Модель / IMEI / SN")
         specs = st.text_input("Характеристики")
         price_buy = st.number_input("Цена закупки", min_value=0, step=100)
         seller = st.text_input("Продавец")
@@ -158,7 +172,7 @@ with tab2:
 
         if submit_buyout:
             if model and price_buy > 0:
-                current_time = now_msk_str()      # ← московское время
+                current_time = now_msk_str()
                 new_id = int(datetime.now().timestamp()) % 100000
 
                 payload = {
@@ -168,7 +182,6 @@ with tab2:
                             "Подготовка к продаже", ""],
                 }
 
-                # Мгновенно добавляем в локальную таблицу
                 new_row = [str(new_id), current_time, model, specs, str(price_buy),
                            seller, "Подготовка к продаже", ""]
                 df_main.loc[len(df_main)] = new_row
@@ -183,7 +196,7 @@ with tab2:
                 st.success(f"Устройство №{new_id} успешно добавлено в подготовку!")
                 st.rerun()
             else:
-                st.error("Заполните модель и цену закупки!")
+                st.error("Заполните модель/IMEI/SN и цену закупки!")
 
 # ---------- Вкладка: ПОДГОТОВКА К ПРОДАЖЕ ----------
 with tab_prep:
@@ -197,7 +210,7 @@ with tab_prep:
         else:
             st.markdown("### 📋 Список устройств в работе:")
             st.dataframe(
-                in_prep[["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки"]],
+                in_prep[["ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики", "Цена_Закупки"]],
                 use_container_width=True,
                 hide_index=True,
             )
@@ -208,7 +221,7 @@ with tab_prep:
             options_prep = {}
             for _, row in in_prep.iterrows():
                 val_id = str(row["ID"]).strip()
-                val_model = str(row["Модель"]).strip()
+                val_model = str(row["Модель/IMEI/SN"]).strip()
                 options_prep[f"№{val_id} - {val_model}"] = val_id
 
             selected_prep = st.selectbox(
@@ -236,7 +249,6 @@ with tab_prep:
                             else selected_prep_id
                         )
 
-                        # Локально
                         df_main.loc[
                             df_main["ID"] == str(selected_prep_id).strip(), "Статус"
                         ] = "На складе"
@@ -281,8 +293,20 @@ with tab3:
             st.info("На складе пусто.")
         else:
             st.markdown("### 🏪 Товары на витрине:")
+
+            # Готовим витрину с ценой выкупа и прибылью по каждой позиции
+            stock_view = in_stock[
+                ["ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики",
+                 "Цена_Закупки", "Цена_Продажи"]
+            ].copy()
+
+            stock_view["Прибыль"] = stock_view.apply(
+                lambda r: to_float(r["Цена_Продажи"]) - to_float(r["Цена_Закупки"]),
+                axis=1,
+            )
+
             st.dataframe(
-                in_stock[["ID", "Дата", "Модель", "Характеристики", "Цена_Продажи"]],
+                stock_view,
                 use_container_width=True,
                 hide_index=True,
             )
@@ -293,7 +317,7 @@ with tab3:
             options = {}
             for _, row in in_stock.iterrows():
                 val_id = str(row["ID"]).strip()
-                val_model = str(row["Модель"]).strip()
+                val_model = str(row["Модель/IMEI/SN"]).strip()
                 options[f"№{val_id} - {val_model}"] = val_id
 
             selected = st.selectbox(
@@ -305,5 +329,5 @@ with tab3:
             current_price = "0"
             if not chosen_row.empty:
                 current_price = str(chosen_row["Цена_Продажи"].values[0])
-            # ...дальше у тебя было продолжение — если пришлёшь его,
-            # аккуратно добавлю сюда оформление продажи.
+
+            # ...сюда позже добавим оформление продажи.
