@@ -143,7 +143,8 @@ with tab2:
                 }
                 
                 # Мгновенно добавляем в локальную таблицу с чистой структурой
-                new_row = [str(new_id), current_time, model, specs, str(price_buy), seller, "Подготовка к продаже", ""]
+                local_time_display = datetime.now().strftime("%d.%m.%Y %H:%M")
+                new_row = [str(new_id), local_time_display, model, specs, str(price_buy), seller, "Подготовка к продаже", ""]
                 df_main.loc[len(df_main)] = new_row
                 st.session_state["df_skupka_local"] = df_main
                 
@@ -174,12 +175,7 @@ with tab_prep:
             st.markdown("---")
             st.markdown("### 🚀 Выставить аппарат на витрину")
             
-            options_prep = {}
-            for _, row in in_prep.iterrows():
-                val_id = str(row["ID"]).strip()
-                val_model = str(row["Модель"]).strip()
-                options_prep[f"№{val_id} - {val_model}"] = val_id
-                
+            options_prep = {f"№{row['ID']} - {row['Модель']}": row['ID'] for _, row in in_prep.iterrows()}
             selected_prep = st.selectbox("Выберите устройство для оценки:", list(options_prep.keys()), key="sb_prep")
             selected_prep_id = options_prep[selected_prep]
             
@@ -226,3 +222,4 @@ with tab3:
         if in_stock.empty:
             st.info("На складе пусто.")
         else:
+            # ПРИМЕНЯЕМ ИСПРАВЛЕНИЕ ДАТЫ НА МОСКОВСКОЕ ВРЕМЯ ТУТ ТОЖЕ
