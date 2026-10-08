@@ -11,7 +11,7 @@ st.title("📱 Учет Скупки и Ремонта")
 # ТВОЙ АПИ-ШЛЮЗ НАСТОЯЩИЙ
 API_URL = "https://script.google.com/macros/s/AKfycbypt3LA1wLZZ-iitNH3x-3ElZrcMVuYm-7od43EQviYsuQcVGB6UV3YVu15tK1OOFnJ/exec"
 
-# Функция МЯГКОГО исправления времени под МСК (без удаления данных)
+# Функция МЯГКОГО исправления времени под МСК
 def format_to_moscow_time(time_str):
     val = str(time_str).strip()
     if not val or val == "None" or val == "":
@@ -38,7 +38,6 @@ def format_to_moscow_time(time_str):
     except:
         pass
 
-    # Если ничего не подошло, просто возвращаем текст как есть, чтобы строка не исчезала!
     return val
 
 # Жесткие и чистые заголовки по паспорту проекта
@@ -70,7 +69,7 @@ def load_data_from_google():
                 while len(clean_row) < len(SKUPKA_HEADERS):
                     clean_row.append("")
                 
-                # Применяем мягкое исправление времени ко второму столбцу (Дата)
+                # ИСПРАВИЛИ: Применяем исправление времени строго ко второму элементу строки (индекс 1 - Дата)
                 clean_row[1] = format_to_moscow_time(clean_row[1])
                 
                 parsed_rows.append(clean_row[:len(SKUPKA_HEADERS)])
