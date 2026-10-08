@@ -166,7 +166,6 @@ with tab_prep:
         if in_prep.empty:
             st.info("Сейчас нет техники на подготовке к продаже.")
         else:
-            # ПРИМЕНЯЕМ ИСПРАВЛЕНИЕ ДАТЫ НА МОСКОВСКОЕ ВРЕМЯ ПЕРЕД ВЫВОДОМ ТАБЛИЦЫ
             in_prep["Дата"] = in_prep["Дата"].apply(format_date_to_moscow)
             
             st.markdown("### 📋 Список устройств в работе:")
@@ -222,4 +221,6 @@ with tab3:
         if in_stock.empty:
             st.info("На складе пусто.")
         else:
-            # ПРИМЕНЯЕМ ИСПРАВЛЕНИЕ ДАТЫ НА МОСКОВСКОЕ ВРЕМЯ ТУТ ТОЖЕ
+            in_stock["Дата"] = in_stock["Дата"].apply(format_date_to_moscow)
+            
+            st.markdown("### 🏪 Товары на витрине:")
