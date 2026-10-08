@@ -1,5 +1,5 @@
-import streamlit as st
-import pandas as pd
+import streamlit st
+import pandas pd
 from datetime import datetime
 import requests
 import json
@@ -7,7 +7,7 @@ import json
 st.set_page_config(page_title="Скупка & Repair", layout="wide")
 st.title("📱 Учет Скупки и Ремонта")
 
-# ТВОЙ АПИ ШЛЮЗ ВШИТ НАВСЕГДА
+# ТВОЙ АПИ-ШЛЮЗ НАСТОЯЩИЙ И ПРАВИЛЬНЫЙ
 API_URL = "https://script.google.com/macros/s/AKfycbypt3LA1wLZZ-iitNH3x-3ElZrcMVuYm-7od43EQviYsuQcVGB6UV3YVu15tK1OOFnJ/exec"
 
 # 4 ВКЛАДКИ
@@ -24,7 +24,7 @@ with tab1:
         submit_repair = st.form_submit_button("Принять в ремонт")
         
         if submit_repair:
-            if client and phone and device:
+            if client phone and device:
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
                 new_id = int(datetime.now().timestamp()) % 100000
                 payload = {
@@ -74,11 +74,10 @@ with tab_prep:
     try:
         response = requests.get(f"{API_URL}?sheet=Скупка")
         data = response.json()
-        df_prep = pd.DataFrame(data[1:], columns=data[0]) if len(data) > 0 else pd.DataFrame()
+        df_prep = pd.DataFrame(data[1:], columns=data) if len(data) > 0 else pd.DataFrame()
     except:
         df_prep = pd.DataFrame()
         
-    # Умный поиск колонки со статусом
     status_col = None
     if not df_prep.empty:
         for col in df_prep.columns:
@@ -97,9 +96,8 @@ with tab_prep:
             st.markdown("---")
             st.markdown("### 🚀 Выставить аппарат на витрину")
             
-            # Безопасный поиск колонок ID и Модель
-            id_col = next((c for c in df_prep.columns if str(c).strip().lower() == "id"), df_prep.columns[0])
-            model_col = next((c for c in df_prep.columns if str(c).strip().lower() == "модель"), df_prep.columns[2] if len(df_prep.columns) > 2 else df_prep.columns[0])
+            id_col = next((c for c in df_prep.columns if str(c).strip().lower() == "id"), df_prep.columns)
+            model_col = next((c for c in df_prep.columns if str(c).strip().lower() == "модель"), df_prep.columns if len(df_prep.columns) > 2 else df_prep.columns)
             
             options_prep = {f"№{row[id_col]} - {row[model_col]}": row[id_col] for _, row in in_prep.iterrows()}
             selected_prep = st.selectbox("Выберите устройство для оценки:", list(options_prep.keys()), key="sb_prep")
@@ -139,7 +137,7 @@ with tab3:
     try:
         response = requests.get(f"{API_URL}?sheet=Скупка")
         data = response.json()
-        df_skupka = pd.DataFrame(data[1:], columns=data[0]) if len(data) > 0 else pd.DataFrame()
+        df_skupka = pd.DataFrame(data[1:], columns=data) if len(data) > 0 else pd.DataFrame()
     except:
         df_skupka = pd.DataFrame()
         
@@ -159,8 +157,8 @@ with tab3:
             st.dataframe(in_stock, use_container_width=True)
             
             st.markdown("---")
-            id_col_s = next((c for c in df_skupka.columns if str(c).strip().lower() == "id"), df_skupka.columns[0])
-            model_col_s = next((c for c in df_skupka.columns if str(c).strip().lower() == "модель"), df_skupka.columns[2] if len(df_skupka.columns) > 2 else df_skupka.columns[0])
+            id_col_s = next((c for c in df_skupka.columns if str(c).strip().lower() == "id"), df_skupka.columns)
+            model_col_s = next((c for c in df_skupka.columns if str(c).strip().lower() == "модель"), df_skupka.columns if len(df_skupka.columns) > 2 else df_skupka.columns)
             
             options = {f"№{row[id_col_s]} - {row[model_col_s]}": row[id_col_s] for _, row in in_stock.iterrows()}
             selected = st.selectbox("Выберите для продажи:", list(options.keys()), key="sb_sell")
@@ -172,7 +170,7 @@ with tab3:
                 for col in chosen_row.columns:
                     c_clean = str(col).strip().lower()
                     if c_clean in ["цена_продажи", "price_sell"]:
-                        current_price = chosen_row[col].values[0]
+                        current_price = chosen_row[col].values
                         break
             
             st.markdown(f"**Стоимость к оплате:** `{current_price} руб.`")
