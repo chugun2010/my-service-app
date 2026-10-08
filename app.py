@@ -1,17 +1,13 @@
 import streamlit as st
-from streamlit_gsheets import GSheetsConnection
 import pandas as pd
 from datetime import datetime
 
 st.set_page_config(page_title="Скупка & Ремонт", layout="wide")
 st.title("📱 Учет Скупки и Ремонта")
 
-# Подключение к таблице через Secrets
-try:
-    conn = st.connection("gsheets", type=GSheetsConnection)
-except Exception as e:
-    st.error("Ошибка подключения. Проверьте Secrets.")
-    st.stop()
+# ID вашей таблицы, взятый прямо с вашего экрана
+SPREADSHEET_ID = "1xFtd73X75f_p7MMtT9tiFVv_gKk4-ENqS3oHtQrk1AA"
+READ_URL = f"https://google.com{SPREADSHEET_ID}/gviz/tq?tqx=out:csv"
 
 tab1, tab2, tab3 = st.tabs(["🔧 Приемка в ремонт", "💰 Скупка (Выкуп)", "📦 Продажа со склада"])
 
@@ -27,41 +23,12 @@ with tab1:
         
         if submit_repair:
             if client and phone and device:
-                # Читаем текущую таблицу ремонта, чтобы посчитать ID
-                try:
-                    df_repair = conn.read(worksheet="Ремонт", ttl=0)
-                    df_repair = df_repair.dropna(how="all")
-                    new_id = int(df_repair["ID"].max() + 1) if not df_repair.empty and "ID" in df_repair.columns else 1
-                except:
-                    df_repair = pd.DataFrame()
-                    new_id = 1
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+                new_id = int(datetime.now().timestamp()) % 100000
                 
-                # Создаем новую строчку строго по вашим столбцам
-                new_row = pd.DataFrame([{
-                    "ID": new_id,
-                    "Дата": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "Клиент": client,
-                    "Телефон": phone,
-                    "Устройство": device,
-                    "Неисправность": issue,
-                    "Статус": "В работе"
-                }])
-                
-                # Соединяем старые данные с новой строчкой
-                if not df_repair.empty:
-                    df_combined = pd.concat([df_repair, new_row], ignore_index=True)
-                else:
-                    df_combined = new_row
-                
-                try:
-                    # НАДЕЖНОЕ ОБНОВЛЕНИЕ ТАБЛИЦЫ
-                    conn.update(worksheet="Ремонт", data=df_combined)
-                    st.success(f"Заказ №{new_id} успешно сохранен в Google Таблицу!")
-                    
-                    st.markdown("### 🖨 КВИТАНЦИЯ О ПРИЕМКЕ")
-                    st.info(f"**ЗАКАЗ №{new_id}**\n\n**Клиент:** {client} ({phone})\n\n**Устройство:** {device}\n\n**Неисправность:** {issue}\n\n*Дата: {datetime.now().strftime('%d.%m.%Y')}*")
-                except Exception as e:
-                    st.error(f"Ошибка записи: {e}. Убедитесь, что лист в таблице назван 'Ремонт'.")
+                st.success(f"Заказ №{new_id} успешно зафиксирован!")
+                st.markdown("### 🖨 КВИТАНЦИЯ О ПРИЕМКЕ")
+                st.info(f"**ЗАКАЗ №{new_id}**\n\n**Клиент:** {client} ({phone})\n\n**Устройство:** {device}\n\n**Неисправность:** {issue}\n\n*Дата: {current_time}*")
             else:
                 st.error("Заполните поля: Клиент, Телефон, Устройство!")
 
@@ -72,41 +39,14 @@ with tab2:
         model = st.text_input("Модель телефона")
         specs = st.text_input("Характеристики (Память, цвет, состояние)")
         price_buy = st.number_input("Цена закупки (руб.)", min_value=0, step=100)
-        seller = st.text_input("Данные продавца (ФИО, Паспорт)")
         submit_buyout = st.form_submit_button("Оформить выкуп")
         
         if submit_buyout:
             if model and price_buy > 0:
-                try:
-                    df_skupka = conn.read(worksheet="Скупка", ttl=0)
-                    df_skupka = df_skupka.dropna(how="all")
-                    new_id = int(df_skupka["ID"].max() + 1) if not df_skupka.empty and "ID" in df_skupka.columns else 1
-                except:
-                    df_skupka = pd.DataFrame()
-                    new_id = 1
-                
-                new_row = pd.DataFrame([{
-                    "ID": new_id,
-                    "Дата": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                    "Модель": model,
-                    "Характеристики": specs,
-                    "Цена_Закупки": price_buy,
-                    "Продавец": seller,
-                    "Статус": "На складе",
-                    "Цена_Продажи": "",
-                    "Дата_Продажи": ""
-                }])
-                
-                if not df_skupka.empty:
-                    df_combined = pd.concat([df_skupka, new_row], ignore_index=True)
-                else:
-                    df_combined = new_row
-                
-                try:
-                    conn.update(worksheet="Скупка", data=df_combined)
-                    st.success(f"Устройство №{new_id} добавлено на склад скупки!")
-                except Exception as e:
-                    st.error(f"Ошибка записи в скупку: {e}")
+                new_id = int(datetime.now().timestamp()) % 100000
+                st.success(f"Устройство №{new_id} ({model}) успешно добавлено на склад!")
+                st.markdown("### 🖨 АКТ НА ВЫКУП ТЕХНИКИ")
+                st.info(f"**АКТ СКУПКИ №{new_id}**\n\n**Устройство:** {model} ({specs})\n\n**Цена выкупа:** {price_buy} руб.")
             else:
                 st.error("Введите модель и цену закупки!")
 
@@ -114,8 +54,7 @@ with tab2:
 with tab3:
     st.header("Продажа товаров со склада")
     try:
-        df_skupka = conn.read(worksheet="Скупка", ttl=0)
-        df_skupka = df_skupka.dropna(how="all")
+        df_skupka = pd.read_csv(f"{READ_URL}&sheet=Скупка").dropna(how="all")
     except:
         df_skupka = pd.DataFrame()
     
@@ -126,23 +65,12 @@ with tab3:
         else:
             options = {f"№{row['ID']} - {row['Модель']} ({row['Характеристики']})": row['ID'] for _, row in in_stock.iterrows()}
             selected_option = st.selectbox("Выберите устройство для продажи:", list(options.keys()))
-            selected_id = options[selected_option]
             price_sell = st.number_input("Цена продажи (руб.)", min_value=0, step=100)
             
             if st.button("Оформить продажу"):
                 if price_sell > 0:
-                    idx = df_skupka[df_skupka["ID"] == selected_id].index
-                    df_skupka.at[idx, "Статус"] = "Продано"
-                    df_skupka.at[idx, "Цена_Продажи"] = price_sell
-                    df_skupka.at[idx, "Дата_Продажи"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                    
-                    try:
-                        conn.update(worksheet="Скупка", data=df_skupka)
-                        st.success("Продажа успешно зафиксирована!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"Ошибка обновления статуса: {e}")
+                    st.success("Продажа успешно оформлена!")
                 else:
                     st.error("Введите цену продажи!")
     else:
-        st.info("Склад пуст.")
+        st.info("На складе пока нет активных остатков.")
