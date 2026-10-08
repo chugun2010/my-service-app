@@ -58,10 +58,10 @@ if "need_reload" not in st.session_state:
     st.session_state["need_reload"] = True
 
 
-# Заголовки листа "Скупка" — ВАЖНО: должны совпадать с Google Таблицей
+# Заголовки листа "Скупка" — должны совпадать с Google Таблицей
 SKUPKA_HEADERS = [
     "ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики",
-    "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи",
+    "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи", "Дата продажи",
 ]
 
 
@@ -91,9 +91,12 @@ def load_data_from_google() -> pd.DataFrame:
 
         df = pd.DataFrame(parsed_rows, columns=SKUPKA_HEADERS)
 
-        # Нормализуем дату в московское время
-        if not df.empty and "Дата выкупа" in df.columns:
-            df["Дата выкупа"] = df["Дата выкупа"].apply(normalize_date)
+        # Нормализуем даты в московское время
+        if not df.empty:
+            if "Дата выкупа" in df.columns:
+                df["Дата выкупа"] = df["Дата выкупа"].apply(normalize_date)
+            if "Дата продажи" in df.columns:
+                df["Дата продажи"] = df["Дата продажи"].apply(normalize_date)
 
         return df
 
@@ -179,11 +182,11 @@ with tab2:
                     "action": "append",
                     "sheet": "Скупка",
                     "row": [new_id, current_time, model, specs, price_buy, seller,
-                            "Подготовка к продаже", ""],
+                            "Подготовка к продаже", "", ""],
                 }
 
                 new_row = [str(new_id), current_time, model, specs, str(price_buy),
-                           seller, "Подготовка к продаже", ""]
+                           seller, "Подготовка к продаже", "", ""]
                 df_main.loc[len(df_main)] = new_row
                 st.session_state["df_skupka_local"] = df_main
 
@@ -294,7 +297,6 @@ with tab3:
         else:
             st.markdown("### 🏪 Товары на витрине:")
 
-            # Готовим витрину с ценой выкупа и прибылью по каждой позиции
             stock_view = in_stock[
                 ["ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики",
                  "Цена_Закупки", "Цена_Продажи"]
@@ -321,13 +323,94 @@ with tab3:
                 options[f"№{val_id} - {val_model}"] = val_id
 
             selected = st.selectbox(
-                "Выберите для продажи:", list(options.keys()), key="sb_sell"
+                "Выберите для продажи:",
+                list(options.keys()),
+                key="sb_sell",
             )
             selected_id = options[selected]
 
             chosen_row = in_stock[in_stock["ID"] == str(selected_id).strip()]
-            current_price = "0"
-            if not chosen_row.empty:
-                current_price = str(chosen_row["Цена_Продажи"].values[0])
 
-            # ...сюда позже добавим оформление продажи.
+            current_price = 0.0
+            current_buy = 0.0
+            if not chosen_row.empty:
+                current_price = to_float(chosen_row["Цена_Продажи"].values[0])
+                current_buy = to_float(chosen_row["Цена_Закупки"].values[0])
+
+            final_price = st.number_input(
+                "Фактическая цена продажи (руб.)",
+                min_value=0,
+                step=100,
+                value=int(current_price),
+                key="sell_final_price",
+            )
+
+            profit_preview = final_price - current_buy
+            st.info(
+                f"Цена выкупа: **{current_buy:.0f} ₽**  |  "
+                f"Цена продажи: **{final_price:.0f} ₽**  |  "
+                f"Прибыль: **{profit_preview:.0f} ₽**"
+            )
+
+            confirm_sale = st.checkbox(
+                "Подтверждаю продажу (действие необратимо)",
+                key="confirm_sale",
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                if st.button("✅ Оформить продажу"):
+                    if not confirm_sale:
+                        st.error("Поставьте галочку подтверждения продажи.")
+                    elif final_price <= 0:
+                        st.error("Укажите цену продажи!")
+                    else:
+                        clean_id = (
+                            int(float(selected_id))
+                            if str(selected_id).replace(".", "", 1).isdigit()
+                            else selected_id
+                        )
+                        sale_time = now_msk_str()
+
+                        # Локально: статус, цена, дата продажи
+                        df_main.loc[
+                            df_main["ID"] == str(selected_id).strip(), "Статус"
+                        ] = "Продано"
+                        df_main.loc[
+                            df_main["ID"] == str(selected_id).strip(), "Цена_Продажи"
+                        ] = str(final_price)
+                        df_main.loc[
+                            df_main["ID"] == str(selected_id).strip(), "Дата продажи"
+                        ] = sale_time
+                        st.session_state["df_skupka_local"] = df_main
+
+                        payload = {
+                            "action": "update",
+                            "sheet": "Скупка",
+                            "id": clean_id,
+                            "status": "Продано",
+                            "price_sell": final_price,
+                            "date_sell": sale_time,
+                        }
+
+                        with st.spinner("Оформляем продажу..."):
+                            try:
+                                requests.post(API_URL, json=payload, timeout=3)
+                            except Exception:
+                                pass
+
+                        st.success(
+                            f"Товар №{selected_id} продан за {final_price:.0f} ₽ "
+                            f"({sale_time}). Прибыль: {profit_preview:.0f} ₽"
+                        )
+                        st.rerun()
+
+            with col2:
+                if st.button("🖨 Печать квитанции"):
+                    st.info(
+                        "⏳ Функция печати квитанции в разработке. "
+                        "Скоро подключим!"
+                    )
+    else:
+        st.info("На складе пусто.")
