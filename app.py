@@ -35,16 +35,13 @@ with tab1:
                 }
                 with st.spinner("Сохраняем ремонт в Google Таблицу..."):
                     try:
-                        # Ставим таймаут 3 секунды, чтобы программа не висела
                         response = requests.post(API_URL, json=payload, timeout=3)
                         st.success(f"Заказ №{new_id} успешно сохранен!")
                     except requests.exceptions.Timeout:
-                        # Если вышло время, но мы знаем, что Гугл записывает быстро — всё равно пишем успех!
                         st.success(f"Заказ №{new_id} успешно отправлен в таблицу!")
                     except Exception as e:
                         st.error(f"Ошибка отправки: {e}")
                     
-                    # Показываем квитанцию в любом случае
                     st.markdown("### 🖨 КВИТАНЦИЯ О ПРИЕМКЕ")
                     st.info(f"**ЗАКАЗ №{new_id}**\n\n**Клиент:** {client}\n**Телефон:** {phone}\n**Устройство:** {device}\n**Неисправность:** {issue}")
 
@@ -72,7 +69,7 @@ with tab2:
                     try:
                         res = requests.post(API_URL, json=payload, timeout=3)
                     except:
-                        pass # Игнорируем зависание ответа шлюза
+                        pass
                     st.success(f"Устройство №{new_id} успешно добавлено!")
                     st.rerun()
 
@@ -114,8 +111,8 @@ with tab_prep:
             st.markdown("---")
             st.markdown("### 🚀 Выставить аппарат на витрину")
             
-            c_id = df_prep.columns
-            c_model = df_prep.columns if len(df_prep.columns) > 2 else df_prep.columns
+            c_id = df_prep.columns[0]
+            c_model = df_prep.columns[2] if len(df_prep.columns) > 2 else df_prep.columns[0]
             
             options_prep = {}
             for _, row in in_prep.iterrows():
@@ -189,8 +186,8 @@ with tab3:
             st.dataframe(in_stock, use_container_width=True, hide_index=True)
             
             st.markdown("---")
-            c_id_s = df_skupka.columns
-            c_model_s = df_skupka.columns if len(df_skupka.columns) > 2 else df_skupka.columns
+            c_id_s = df_skupka.columns[0]
+            c_model_s = df_skupka.columns[2] if len(df_skupka.columns) > 2 else df_skupka.columns[0]
             
             options = {}
             for _, row in in_stock.iterrows():
@@ -203,16 +200,20 @@ with tab3:
             
             chosen_row = in_stock[in_stock[c_id_s].astype(str).str.strip() == str(selected_id).strip()]
             current_price = 0
+            
             if not chosen_row.empty:
+                # Если в таблице есть 8-й столбец (цена), берем его значение из первой найденной строки
                 if len(chosen_row.columns) > 7:
-                    val_p = chosen_row.iloc
-                    current_price = val_p if pd.notna(val_p) else 0
+                    current_price = chosen_row.iloc[0, 7]
                 else:
                     for col in chosen_row.columns:
                         if str(col).strip().lower() in ["цена_продажи", "цена продажи", "price_sell"]:
-                            current_price = chosen_row[col].values if hasattr(chosen_row[col], 'values') else chosen_row[col]
+                            current_price = chosen_row[col].values[0] if hasattr(chosen_row[col], 'values') else chosen_row[col]
                             break
             
             st.markdown(f"**Стоимость к оплате:** `{current_price} руб.`")
             
             if st.button("Оформить продажу", type="primary"):
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+                clean_id_s = int(float(selected_id)) if selected_id.replace('.','',1).isdigit() else selected_id
+                
