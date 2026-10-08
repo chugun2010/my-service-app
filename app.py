@@ -7,10 +7,10 @@ import json
 st.set_page_config(page_title="Скупка & Repair", layout="wide")
 st.title("📱 Учет Скупки и Ремонта")
 
-# Ваша ссылка на шлюз Google Apps Script
+# Ваша рабочая ссылка-шлюз
 API_URL = "https://script.google.com/macros/s/AKfycbypt3LA1wLZZ-iitNH3x-3ElZrcMVuYm-7od43EQviYsuQcVGB6UV3YVu15tK1OOFnJ/exec"
 
-# СОЗДАЕМ 4 ВКЛАДКИ (Добавили Подготовку к продаже)
+# СОЗДАЕМ 4 ВКЛАДКИ
 tab1, tab2, tab_prep, tab3 = st.tabs([
     "🔧 Приемка в ремонт", 
     "💰 Скупка (Выкуп)", 
@@ -61,7 +61,6 @@ with tab2:
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
                 new_id = int(datetime.now().timestamp()) % 100000
                 
-                # ТЕПЕРЬ ТЕХНИКА ПОДАТАЕТ В СТАТУС "Подготовка к продаже"
                 payload = {
                     "action": "append",
                     "sheet": "Скупка",
@@ -81,25 +80,44 @@ with tab_prep:
     try:
         response = requests.get(f"{API_URL}?sheet=Скупка")
         data = response.json()
-        df_prep = pd.DataFrame(data[1:], columns=data) if len(data) > 0 else pd.DataFrame()
+        
+        # Безопасно собираем таблицу, если данные пришли правильным списком списков
+        if len(data) > 1:
+            df_prep = pd.DataFrame(data[1:], columns=data[0])
+        else:
+            df_prep = pd.DataFrame()
     except:
         df_prep = pd.DataFrame()
     
-    if not df_prep.empty and "Статус" in df_prep.columns:
-        in_prep = df_prep[df_prep["Статус"].str.strip() == "Подготовка к продаже"]
+    # Ищем колонку статуса, не обращая внимания на регистр букв и пробелы
+    status_col = None
+    if not df_prep.empty:
+        for col in df_prep.columns:
+            if str(col).strip().lower() == "статус":
+                status_col = col
+                break
+
+    if not df_prep.empty and status_col is not None:
+        # Фильтруем устройства в подготовке
+        in_prep = df_prep[df_prep[status_col].astype(str).str.strip() == "Подготовка к продаже"]
         
         if in_prep.empty:
             st.info("Сейчас нет техники на подготовке к продаже.")
         else:
             st.markdown("### 📋 Список устройств в работе:")
-            show_cols = ["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки", "Статус"]
+            # Показываем только то, что реально нашлось в таблице
+            show_cols = ["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки", status_col]
             available_prep_cols = [col for col in show_cols if col in df_prep.columns]
             st.dataframe(in_prep[available_prep_cols], use_container_width=True)
             
             st.markdown("---")
             st.markdown("### 🚀 Выставить аппарат на витрину")
             
-            options_prep = {f"№{row['ID']} - {row['Модель']}": row['ID'] for _, row in in_prep.iterrows()}
+            # Ищем колонку ID для привязки
+            id_col = "ID" if "ID" in df_prep.columns else df_prep.columns[0]
+            model_col = "Модель" if "Модель" in df_prep.columns else df_prep.columns[2]
+            
+            options_prep = {f"№{row[id_col]} - {row[model_col]}": row[id_col] for _, row in in_prep.iterrows()}
             selected_prep = st.selectbox("Выберите устройство для оценки:", list(options_prep.keys()))
             selected_prep_id = options_prep[selected_prep]
             
@@ -133,7 +151,7 @@ with tab_prep:
                 if st.button("🖨 Печать этикетки штрих-кода"):
                     st.info(f"⏳ Функция печати для устройства №{selected_prep_id} в разработке. Скоро подключим!")
     else:
-        st.info("Таблица скупки пуста или еще не создана.")
+        st.info("На подготовке пока ничего нет, либо проверьте заголовок 'Статус' в Гугл Таблице.")
 
 # ---------------- Вкладка 3: ПРОДАЖА СО СКЛАДА ----------------
 with tab3:
@@ -142,20 +160,28 @@ with tab3:
     try:
         response = requests.get(f"{API_URL}?sheet=Скупка")
         data = response.json()
-        df_skupka = pd.DataFrame(data[1:], columns=data) if len(data) > 0 else pd.DataFrame()
+        if len(data) > 1:
+            df_skupka = pd.DataFrame(data[1:], columns=data[0])
+        else:
+            df_skupka = pd.DataFrame()
     except:
         df_skupka = pd.DataFrame()
     
-    if not df_skupka.empty and "Статус" in df_skupka.columns:
-        in_stock = df_skupka[df_skupka["Статус"].str.strip() == "На складе"]
+    status_col_s = None
+    if not df_skupka.empty:
+        for col in df_skupka.columns:
+            if str(col).strip().lower() == "статус":
+                status_col_s = col
+                break
+    
+    if not df_skupka.empty and status_col_s is not None:
+        in_stock = df_skupka[df_skupka[status_col_s].astype(str).str.strip() == "На складе"]
         
         if in_stock.empty:
             st.info("На складе сейчас пусто. Нет доступных товаров.")
         else:
             st.markdown("### 🏪 Витрина магазина (Товары в наличии):")
             
-            # Показываем красивую таблицу остатков. 
-            # Название колонки цены проверяется автоматически (подойдет и Цена_Продажи, и price_sell)
             show_stock_cols = ["ID", "Модель", "Характеристики", "Цена_Продажи", "price_sell"]
             available_stock_cols = [col for col in show_stock_cols if col in in_stock.columns]
             st.dataframe(in_stock[available_stock_cols], use_container_width=True)
@@ -163,12 +189,14 @@ with tab3:
             st.markdown("---")
             st.markdown("### 💰 Оформление сделки")
             
-            options_sell = {f"№{row['ID']} - {row['Модель']}": row['ID'] for _, row in in_stock.iterrows()}
+            id_col_s = "ID" if "ID" in df_skupka.columns else df_skupka.columns[0]
+            model_col_s = "Модель" if "Модель" in df_skupka.columns else df_skupka.columns[2]
+            
+            options_sell = {f"№{row[id_col_s]} - {row[model_col_s]}": row[id_col_s] for _, row in in_stock.iterrows()}
             selected_sell = st.selectbox("Выберите продаваемый аппарат из списка:", list(options_sell.keys()))
             selected_sell_id = options_sell[selected_sell]
             
-            # Автоматически находим цену выбранного телефона
-            chosen_row = in_stock[in_stock["ID"] == selected_sell_id]
+            chosen_row = in_stock[in_stock[id_col_s] == selected_sell_id]
             current_price = 0
             if not chosen_row.empty:
                 for col in ["Цена_Продажи", "price_sell"]:
@@ -195,9 +223,3 @@ with tab3:
                         st.success(f"🎉 Продано! Товар №{selected_sell_id} списан со склада.")
                         st.rerun()
                     else:
-                        st.error("Ошибка шлюза при обновлении статуса.")
-                except Exception as e:
-                    st.error(f"Не удалось отправить данные: {e}")
-                    
-    else:
-        st.info("На складе пока нет активных остатков.")
