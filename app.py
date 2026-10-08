@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 import json
 import time
@@ -8,8 +8,33 @@ import time
 st.set_page_config(page_title="Скупка & Repair", layout="wide")
 st.title("📱 Учет Скупки и Ремонта")
 
-# ТВОЙ АПИ-ШЛЮЗ НАСТОЯЩИЙ
+# ТВОЙ АПИ-ШЛЮЗ НАСТОЯЩИЙ И РАБОЧИЙ
 API_URL = "https://script.google.com/macros/s/AKfycbypt3LA1wLZZ-iitNH3x-3ElZrcMVuYm-7od43EQviYsuQcVGB6UV3YVu15tK1OOFnJ/exec"
+
+# Функция МЯГКОГО перевода времени Google в московское формат
+def to_moscow_time(time_val):
+    val = str(time_val).strip()
+    if not val or val == "None" or val == "":
+        return ""
+    if "t" in val.lower() or "z" in val.lower():
+        try:
+            clean_str = val.replace("T", " ").replace("t", " ").replace("Z", "").replace("z", "")
+            if "." in clean_str:
+                clean_str = clean_str.split(".")[0]
+            dt = datetime.strptime(clean_str, "%Y-%m-%d %H:%M:%S")
+            dt_moscow = dt + timedelta(hours=3)
+            return dt_moscow.strftime("%d.%m.%Y %H:%M")
+        except:
+            pass
+    try:
+        dt = datetime.strptime(val, "%Y-%m-%d %H:%M")
+        return dt.strftime("%d.%m.%Y %H:%M")
+    except:
+        pass
+    return val
+
+# Жесткие и чистые заголовки по паспорту проекта
+SKUPKA_HEADERS = ["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи"]
 
 # Инициализируем локальное хранилище в памяти приложения
 if "df_skupka_local" not in st.session_state:
@@ -19,7 +44,6 @@ if "need_reload" not in st.session_state:
 
 # Функция БРОНЕБОЙНОГО сбора чистой таблицы вручную по строкам
 def load_data_from_google():
-    headers = ["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи"]
     try:
         nocache_url = f"{API_URL}?sheet=Скупка&t={time.time()}"
         response = requests.get(nocache_url, timeout=5)
@@ -28,26 +52,28 @@ def load_data_from_google():
         parsed_rows = []
         if isinstance(data, list) and len(data) > 0:
             for row in data:
-                # Если строчка пустая или это заголовок таблицы из Google, пропускаем её
-                if not row or not isinstance(row, list):
+                # Безопасно проверяем, что строка — это список и она не пустая
+                if not row or not isinstance(row, list) or len(row) == 0:
                     continue
+                
+                # Пропускаем техническую шапку таблицы, если она прилетела из Google
                 first_cell = str(row[0]).strip().lower()
                 if first_cell in ["id", "ид", "идентификатор", ""]:
                     continue
                 
-                # Достраиваем строку пустыми ячейками, если в таблице заполнено не все
                 clean_row = [str(cell).strip() for cell in row]
-                while len(clean_row) < len(headers):
+                while len(clean_row) < len(SKUPKA_HEADERS):
                     clean_row.append("")
                 
-                # Берем только первые 8 ячеек строго по нашему паспорту
-                parsed_rows.append(clean_row[:len(headers)])
+                # ИСПРАВИЛИ: Переводим кривое время в нормальное московское строго во втором столбце (Дата)
+                clean_row[1] = to_moscow_time(clean_row[1])
                 
-        # Собираем чистейший DataFrame БЕЗ мульти-индексов и скрытой каши
-        return pd.DataFrame(parsed_rows, columns=headers)
+                parsed_rows.append(clean_row[:len(SKUPKA_HEADERS)])
+                
+        return pd.DataFrame(parsed_rows, columns=SKUPKA_HEADERS)
     except:
         pass
-    return pd.DataFrame(columns=headers)
+    return pd.DataFrame(columns=SKUPKA_HEADERS)
 
 # Кнопка ручной синхронизации
 if st.button("🔄 Синхронизировать с Google Таблицей"):
@@ -85,7 +111,7 @@ with tab1:
                     "sheet": "Ремонт",
                     "row": [new_id, current_time, client, phone, device, issue, "В работе"]
                 }
-                with st.spinner("Сохраняем ремонт in Google..."):
+                with st.spinner("Сохраняем ремонт в Google..."):
                     try:
                         requests.post(API_URL, json=payload, timeout=3)
                         st.success(f"Заказ №{new_id} успешно сохранен!")
@@ -117,7 +143,8 @@ with tab2:
                 }
                 
                 # Мгновенно добавляем в локальную таблицу с чистой структурой
-                new_row = [str(new_id), current_time, model, specs, str(price_buy), seller, "Подготовка к продаже", ""]
+                local_time_display = datetime.now().strftime("%d.%m.%Y %H:%M")
+                new_row = [str(new_id), local_time_display, model, specs, str(price_buy), seller, "Подготовка к продаже", ""]
                 df_main.loc[len(df_main)] = new_row
                 st.session_state["df_skupka_local"] = df_main
                 
@@ -140,18 +167,12 @@ with tab_prep:
             st.info("Сейчас нет техники на подготовке к продаже.")
         else:
             st.markdown("### 📋 Список устройств в работе:")
-            # Идеально чистая витрина без индексов
             st.dataframe(in_prep[["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки"]], use_container_width=True, hide_index=True)
             
             st.markdown("---")
             st.markdown("### 🚀 Выставить аппарат на витрину")
             
-            options_prep = {}
-            for _, row in in_prep.iterrows():
-                val_id = str(row["ID"]).strip()
-                val_model = str(row["Модель"]).strip()
-                options_prep[f"№{val_id} - {val_model}"] = val_id
-                
+            options_prep = {f"№{row['ID']} - {row['Модель']}": row['ID'] for _, row in in_prep.iterrows()}
             selected_prep = st.selectbox("Выберите устройство для оценки:", list(options_prep.keys()), key="sb_prep")
             selected_prep_id = options_prep[selected_prep]
             
@@ -200,21 +221,3 @@ with tab3:
             st.info("На складе пусто.")
         else:
             st.markdown("### 🏪 Товары на витрине:")
-            st.dataframe(in_stock[["ID", "Дата", "Модель", "Характеристики", "Цена_Продажи"]], use_container_width=True, hide_index=True)
-            
-            st.markdown("---")
-            st.markdown("### 💰 Оформление сделки")
-            
-            options = {}
-            for _, row in in_stock.iterrows():
-                val_id = str(row["ID"]).strip()
-                val_model = str(row["Модель"]).strip()
-                options[f"№{val_id} - {val_model}"] = val_id
-                
-            selected = st.selectbox("Выберите для продажи:", list(options.keys()), key="sb_sell")
-            selected_id = options[selected]
-            
-            chosen_row = in_stock[in_stock["ID"] == str(selected_id).strip()]
-            current_price = "0"
-            if not chosen_row.empty:
-                current_price = str(chosen_row["Цена_Продажи"].values[0])
