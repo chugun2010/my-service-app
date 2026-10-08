@@ -533,5 +533,3 @@ else:
                     ].copy()
                     show["Прибыль"] = filtered["_profit"].values
                     st.dataframe(show, use_container_width=True, hide_index=True)
-    else:
-        st.info("На складе пусто.")
