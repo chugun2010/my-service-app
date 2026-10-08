@@ -11,49 +11,61 @@ st.title("📱 Учет Скупки и Ремонта")
 # ТВОЙ АПИ-ШЛЮЗ НАСТОЯЩИЙ
 API_URL = "https://script.google.com/macros/s/AKfycbypt3LA1wLZZ-iitNH3x-3ElZrcMVuYm-7od43EQviYsuQcVGB6UV3YVu15tK1OOFnJ/exec"
 
-# Инициализируем локальное хранилище в памяти приложения для мгновенного обновления остатков
+# Жесткие и чистые заголовки по паспорту проекта для устранения дубляжа
+SKUPKA_HEADERS = ["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи"]
+
+# Инициализируем локальное хранилище в памяти приложения
 if "df_skupka_local" not in st.session_state:
     st.session_state["df_skupka_local"] = None
 if "need_reload" not in st.session_state:
     st.session_state["need_reload"] = True
 
-# Функция принудительного скачивания свежих данных из Google
+# Функция правильного и безопасного скачивания данных из Google
 def load_data_from_google():
-    headers = ["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи"]
     try:
         nocache_url = f"{API_URL}?sheet=Скупка&t={time.time()}"
         response = requests.get(nocache_url, timeout=5)
         data = response.json()
-        if len(data) > 0:
-            if isinstance(data, list):
-                df = pd.DataFrame(data[1:], columns=data)
+        
+        if isinstance(data, list) and len(data) > 0:
+            # Проверяем, прислал ли Гугл строку заголовков. 
+            # Если в первом элементе первой строки написано "ID" или "id", значит это шапка таблицы
+            first_row = data[0]
+            if isinstance(first_row, list) and len(first_row) > 0 and str(first_row[0]).strip().lower() in ["id", "ид"]:
+                raw_rows = data[1:] # Отсекаем гугловские заголовки, чтобы они не дублировались серой строкой
             else:
-                df = pd.DataFrame(data)
-                while len(df.columns) > len(headers):
-                    headers.append(f"Колонка_{len(headers)+1}")
-                df.columns = headers[:len(df.columns)]
-            # Чистим данные от случайных пробелов в ID и Статусе
-            if len(df.columns) > 0:
-                df[df.columns[0]] = df[df.columns[0]].astype(str).str.strip()
-            col_idx = 6 if len(df.columns) > 6 else len(df.columns) - 1
-            df[df.columns[col_idx]] = df[df.columns[col_idx]].astype(str).str.strip()
+                raw_rows = data
+                
+            # Собираем DataFrame строго с нашими чистыми заголовками
+            df = pd.DataFrame(raw_rows)
+            
+            # Если колонок в таблице меньше или больше, подгоняем под наш стандарт
+            while len(df.columns) < len(SKUPKA_HEADERS):
+                df[len(df.columns)] = ""
+            df = df.iloc[:, :len(SKUPKA_HEADERS)]
+            df.columns = SKUPKA_HEADERS
+            
+            # Очищаем все текстовые поля от лишних скрытых пробелов
+            for col in df.columns:
+                df[col] = df[col].astype(str).str.strip()
             return df
     except:
         pass
-    return pd.DataFrame(columns=headers)
+    # Если база совсем пустая, возвращаем пустую таблицу с правильной структурой
+    return pd.DataFrame(columns=SKUPKA_HEADERS)
 
-# Кнопка глобального обновления данных вручную в самом верху панели
+# Кнопка синхронизации
 if st.button("🔄 Синхронизировать с Google Таблицей"):
     st.session_state["df_skupka_local"] = load_data_from_google()
     st.session_state["need_reload"] = False
     st.rerun()
 
-# Если это первый запуск или был сброс — скачиваем базу
+# Первая загрузка при старте
 if st.session_state["df_skupka_local"] is None or st.session_state["need_reload"]:
     st.session_state["df_skupka_local"] = load_data_from_google()
     st.session_state["need_reload"] = False
 
-# Загружаем текущую рабочую таблицу из памяти
+# Загружаем текущую чистую таблицу из памяти
 df_main = st.session_state["df_skupka_local"]
 
 # 4 ВКЛАДКИ
@@ -103,19 +115,15 @@ with tab2:
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
                 new_id = int(datetime.now().timestamp()) % 100000
                 
-                # Данные для отправки на сервер
                 payload = {
                     "action": "append",
                     "sheet": "Скупка",
                     "row": [new_id, current_time, model, specs, price_buy, seller, "Подготовка к продаже", ""]
                 }
                 
-                # МГНОВЕННО добавляем аппарат в локальную таблицу на экране (Мимо медленного кэша Гугла)
+                # Мгновенно добавляем в локальную таблицу с правильной структурой столбцов
                 new_row = [str(new_id), current_time, model, specs, str(price_buy), seller, "Подготовка к продаже", ""]
-                # Подгоняем длину строки под количество колонок
-                while len(new_row) < len(df_main.columns):
-                    new_row.append("")
-                df_main.loc[len(df_main)] = new_row[:len(df_main.columns)]
+                df_main.loc[len(df_main)] = new_row
                 st.session_state["df_skupka_local"] = df_main
                 
                 with st.spinner("Записываем выкуп техники..."):
@@ -123,7 +131,7 @@ with tab2:
                         requests.post(API_URL, json=payload, timeout=3)
                     except:
                         pass
-                    st.success(f"Устройство №{new_id} успешно выкуплено и мгновенно добавлено в подготовку!")
+                    st.success(f"Устройство №{new_id} успешно добавлено в подготовку!")
                     st.rerun()
 
 # ---------------- Вкладка: ПОДГОТОВКА К ПРОДАЖЕ ----------------
@@ -131,27 +139,22 @@ with tab_prep:
     st.header("Техника на подготовке к продаже")
     
     if not df_main.empty:
-        col_idx = 6 if len(df_main.columns) > 6 else len(df_main.columns) - 1
-        status_col = df_main.columns[col_idx]
-        
-        in_prep = df_main[df_main[status_col].astype(str).str.strip() == "Подготовка к продаже"]
+        in_prep = df_main[df_main["Статус"] == "Подготовка к продаже"]
         
         if in_prep.empty:
             st.info("Сейчас нет техники на подготовке к продаже.")
         else:
             st.markdown("### 📋 Список устройств в работе:")
-            st.dataframe(in_prep, use_container_width=True, hide_index=True)
+            # Выводим только важные колонки для витрины подготовки
+            st.dataframe(in_prep[["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки"]], use_container_width=True, hide_index=True)
             
             st.markdown("---")
             st.markdown("### 🚀 Выставить аппарат на витрину")
             
-            c_id = df_main.columns[0]
-            c_model = df_main.columns[2] if len(df_main.columns) > 2 else df_main.columns[0]
-            
             options_prep = {}
             for _, row in in_prep.iterrows():
-                val_id = str(row[c_id]).strip()
-                val_model = str(row[c_model]).strip()
+                val_id = str(row["ID"]).strip()
+                val_model = str(row["Модель"]).strip()
                 options_prep[f"№{val_id} - {val_model}"] = val_id
                 
             selected_prep = st.selectbox("Выберите устройство для оценки:", list(options_prep.keys()), key="sb_prep")
@@ -165,10 +168,9 @@ with tab_prep:
                     if price_sell_ready > 0:
                         clean_id = int(float(selected_prep_id)) if selected_prep_id.replace('.','',1).isdigit() else selected_prep_id
                         
-                        # МГНОВЕННО меняем статус и цену локально в памяти экрана
-                        df_main.loc[df_main[c_id].astype(str).str.strip() == str(selected_prep_id).strip(), status_col] = "На складе"
-                        if len(df_main.columns) > 7:
-                            df_main.loc[df_main[c_id].astype(str).str.strip() == str(selected_prep_id).strip(), df_main.columns[7]] = str(price_sell_ready)
+                        # Мгновенно меняем статус и цену продажи локально в памяти программы
+                        df_main.loc[df_main["ID"] == str(selected_prep_id).strip(), "Статус"] = "На складе"
+                        df_main.loc[df_main["ID"] == str(selected_prep_id).strip(), "Цена_Продажи"] = str(price_sell_ready)
                         st.session_state["df_skupka_local"] = df_main
                         
                         payload = {
@@ -198,18 +200,18 @@ with tab3:
     st.header("Продажа товаров со склада")
     
     if not df_main.empty:
-        col_idx = 6 if len(df_main.columns) > 6 else len(df_main.columns) - 1
-        status_col_s = df_main.columns[col_idx]
-        
-        in_stock = df_main[df_main[status_col_s].astype(str).str.strip() == "На складе"]
+        in_stock = df_main[df_main["Статус"] == "На складе"]
         if in_stock.empty:
             st.info("На складе пусто.")
         else:
             st.markdown("### 🏪 Товары на витрине:")
-            st.dataframe(in_stock, use_container_width=True, hide_index=True)
+            # ЧИСТАЯ КРАСИВАЯ ВИТРИНА: показываем только то, что нужно продавцу, без серых строк
+            st.dataframe(in_stock[["ID", "Дата", "Модель", "Характеристики", "Цена_Продажи"]], use_container_width=True, hide_index=True)
             
             st.markdown("---")
-            c_id_s = df_main.columns[0]
-            c_model_s = df_main.columns[2] if len(df_main.columns) > 2 else df_main.columns[0]
+            st.markdown("### 💰 Оформление сделки")
             
             options = {}
+            for _, row in in_stock.iterrows():
+                val_id = str(row["ID"]).strip()
+                val_model = str(row["Модель"]).strip()
