@@ -1,5 +1,5 @@
-import streamlit st
-import pandas pd
+import streamlit as st
+import pandas as pd
 from datetime import datetime
 import requests
 import json
@@ -24,7 +24,7 @@ with tab1:
         submit_repair = st.form_submit_button("Принять в ремонт")
         
         if submit_repair:
-            if client phone and device:
+            if client and phone and device:
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
                 new_id = int(datetime.now().timestamp()) % 100000
                 payload = {
@@ -113,6 +113,7 @@ with tab_prep:
                             "action": "update",
                             "sheet": "Скупка",
                             "id": int(selected_prep_id) if str(selected_prep_id).isdigit() else selected_prep_id,
+                            "status": "На след", # Скрипт Apps Script ищет точное совпадение, но по логике шлюза ставим "На складе"
                             "status": "На складе",
                             "price_sell": price_sell_ready 
                         }
