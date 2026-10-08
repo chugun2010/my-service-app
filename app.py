@@ -11,30 +11,35 @@ st.title("📱 Учет Скупки и Ремонта")
 # ТВОЙ АПИ-ШЛЮЗ НАСТОЯЩИЙ
 API_URL = "https://script.google.com/macros/s/AKfycbypt3LA1wLZZ-iitNH3x-3ElZrcMVuYm-7od43EQviYsuQcVGB6UV3YVu15tK1OOFnJ/exec"
 
-# Функция для приведения кривого времени Google к нормальному московскому формату
+# Функция МЯГКОГО исправления времени под МСК (без удаления данных)
 def format_to_moscow_time(time_str):
-    if not time_str or str(time_str).strip() == "":
+    val = str(time_str).strip()
+    if not val or val == "None" or val == "":
         return ""
-    try:
-        # Убираем лишние буквы и миллисекунды, если они есть (например, 2026-10-08T11:45:00.000Z)
-        clean_str = str(time_str).replace("T", " ").replace("Z", "")
-        if "." in clean_str:
-            clean_str = clean_str.split(".")[0]
-            
-        # Пытаемся прочитать дату из ISO формата Гугла
-        dt = datetime.strptime(clean_str, "%Y-%m-%d %H:%M:%S")
-        # ПРИБАВЛЯЕМ 3 ЧАСА, чтобы получить точное Московское время
-        dt_moscow = dt + timedelta(hours=3)
-        # Возвращаем красивую и понятную строчку
-        return dt_moscow.strftime("%d.%m.%Y %H:%M")
-    except:
+    
+    # Если это формат Google с буквой T и Z (например, 2026-10-08T11:45:00.000Z)
+    if "t" in val.lower() or "z" in val.lower():
         try:
-            # Если дата уже была записана в нашем обычном формате (ГГГГ-ММ-ДД ЧЧ:ММ)
-            dt = datetime.strptime(str(time_str).strip(), "%Y-%m-%d %H:%M")
-            return dt.strftime("%d.%m.%Y %H:%M")
+            clean_str = val.replace("T", " ").replace("t", " ").replace("Z", "").replace("z", "")
+            if "." in clean_str:
+                clean_str = clean_str.split(".")[0]
+            
+            # Считаем Московское время (+3 часа)
+            dt = datetime.strptime(clean_str, "%Y-%m-%d %H:%M:%S")
+            dt_moscow = dt + timedelta(hours=3)
+            return dt_moscow.strftime("%d.%m.%Y %H:%M")
         except:
-            # Если формат совсем нестандартный, просто возвращаем очищенный текст
-            return str(time_str).replace("T", " ").split(".")[0]
+            pass
+
+    # Если это наш обычный формат (ГГГГ-ММ-ДД ЧЧ:ММ)
+    try:
+        dt = datetime.strptime(val, "%Y-%m-%d %H:%M")
+        return dt.strftime("%d.%m.%Y %H:%M")
+    except:
+        pass
+
+    # Если ничего не подошло, просто возвращаем текст как есть, чтобы строка не исчезала!
+    return val
 
 # Жесткие и чистые заголовки по паспорту проекта
 SKUPKA_HEADERS = ["ID", "Дата", "Модель", "Характеристики", "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи"]
@@ -65,8 +70,7 @@ def load_data_from_google():
                 while len(clean_row) < len(SKUPKA_HEADERS):
                     clean_row.append("")
                 
-                # --- ИСПРАВЛЕНИЕ ВРЕМЕНИ НА МОСКОВСКОЕ ---
-                # Вторая ячейка (индекс 1) отвечает за Дату
+                # Применяем мягкое исправление времени ко второму столбцу (Дата)
                 clean_row[1] = format_to_moscow_time(clean_row[1])
                 
                 parsed_rows.append(clean_row[:len(SKUPKA_HEADERS)])
@@ -143,7 +147,6 @@ with tab2:
                     "row": [new_id, current_time, model, specs, price_buy, seller, "Подготовка к продаже", ""]
                 }
                 
-                # Мгновенно форматируем текущее время для локального показа
                 local_time_display = datetime.now().strftime("%d.%m.%Y %H:%M")
                 new_row = [str(new_id), local_time_display, model, specs, str(price_buy), seller, "Подготовка к продаже", ""]
                 df_main.loc[len(df_main)] = new_row
@@ -220,3 +223,9 @@ with tab_prep:
 with tab3:
     st.header("Продажа товаров со склада")
     
+    if not df_main.empty:
+        in_stock = df_main[df_main["Статус"] == "На складе"]
+        if in_stock.empty:
+            st.info("На складе пусто.")
+        else:
+            st.markdown("### 🏪 Товары на витрине:")
