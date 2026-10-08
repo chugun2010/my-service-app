@@ -27,11 +27,13 @@ with tab1:
         
         if submit_repair:
             if client and phone and device:
+                # Читаем текущую таблицу ремонта, чтобы посчитать ID
                 try:
-                    # Читаем текущую таблицу ремонта, чтобы посчитать ID
-                    df_repair = conn.read(worksheet="Ремонт", ttl=0).dropna(how="all")
+                    df_repair = conn.read(worksheet="Ремонт", ttl=0)
+                    df_repair = df_repair.dropna(how="all")
                     new_id = int(df_repair["ID"].max() + 1) if not df_repair.empty and "ID" in df_repair.columns else 1
                 except:
+                    df_repair = pd.DataFrame()
                     new_id = 1
                 
                 # Создаем новую строчку строго по вашим столбцам
@@ -76,9 +78,11 @@ with tab2:
         if submit_buyout:
             if model and price_buy > 0:
                 try:
-                    df_skupka = conn.read(worksheet="Скупка", ttl=0).dropna(how="all")
+                    df_skupka = conn.read(worksheet="Скупка", ttl=0)
+                    df_skupka = df_skupka.dropna(how="all")
                     new_id = int(df_skupka["ID"].max() + 1) if not df_skupka.empty and "ID" in df_skupka.columns else 1
                 except:
+                    df_skupka = pd.DataFrame()
                     new_id = 1
                 
                 new_row = pd.DataFrame([{
@@ -110,7 +114,8 @@ with tab2:
 with tab3:
     st.header("Продажа товаров со склада")
     try:
-        df_skupka = conn.read(worksheet="Скупка", ttl=0).dropna(how="all")
+        df_skupka = conn.read(worksheet="Скупка", ttl=0)
+        df_skupka = df_skupka.dropna(how="all")
     except:
         df_skupka = pd.DataFrame()
     
