@@ -40,17 +40,51 @@ def to_float(value) -> float:
         return 0.0
 
 
-def to_date(value):
-    """Из строки 'ГГГГ-ММ-ДД ЧЧ:ММ' или ISO вытаскиваем date. Иначе None."""
-    if value is None:
-        return None
-    s = str(value).strip()
-    if s == "":
-        return None
+def clean_id_for_api(val):
+    """Для API: числа -> int, строки (S-0001) -> строка."""
+    s = str(val).strip()
     try:
-        return pd.to_datetime(s).date()
+        return int(float(s))
+    except (ValueError, TypeError):
+        return s
+
+
+def next_shop_id(df) -> str:
+    """Следующий ID магазина: S-0001, S-0002, ..."""
+    max_num = 0
+    for v in df["ID"].astype(str):
+        v = v.strip()
+        if v.startswith("S-"):
+            try:
+                n = int(v[2:])
+                if n > max_num:
+                    max_num = n
+            except ValueError:
+                pass
+    return f"S-{max_num + 1:04d}"
+
+
+def next_repair_id() -> str:
+    """Следующий ID ремонта: R-0001, R-0002, ... (загружает лист Ремонт)."""
+    try:
+        url = f"{API_URL}?sheet=Ремонт&t={time.time()}"
+        r = requests.get(url, timeout=5)
+        data = r.json()
+        max_num = 0
+        for row in data:
+            if not row or not isinstance(row, list):
+                continue
+            v = str(row[0]).strip()
+            if v.startswith("R-"):
+                try:
+                    n = int(v[2:])
+                    if n > max_num:
+                        max_num = n
+                except ValueError:
+                    pass
+        return f"R-{max_num + 1:04d}"
     except Exception:
-        return None
+        return f"R-{int(datetime.now().timestamp()) % 100000}"
 
 
 # ТВОЙ АПИ-ШЛЮЗ
@@ -59,22 +93,19 @@ API_URL = (
     "AKfycbypt3LA1wLZZ-iitNH3x-3ElZrcMVuYm-7od43EQviYsuQcVGB6UV3YVu15tK1OOFnJ/exec"
 )
 
-# Инициализация локального хранилища
 if "df_skupka_local" not in st.session_state:
     st.session_state["df_skupka_local"] = None
-
 if "need_reload" not in st.session_state:
     st.session_state["need_reload"] = True
-
 if "section" not in st.session_state:
-    st.session_state["section"] = "shop"   # по умолчанию открываем магазин
+    st.session_state["section"] = "shop"
 
 
-# Заголовки листа "Скупка" — 10 колонок, как в Google Таблице
+# Заголовки листа "Скупка" — 11 колонок
 SKUPKA_HEADERS = [
     "ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики",
     "Цена_Закупки", "Продавец", "Статус", "Цена_Продажи",
-    "Дата продажи", "Срок гарантии",
+    "Дата продажи", "Срок гарантии", "Стоимость_запчастей",
 ]
 
 
@@ -85,20 +116,16 @@ def load_data_from_google() -> pd.DataFrame:
         data = response.json()
 
         parsed_rows = []
-
         if isinstance(data, list) and len(data) > 0:
             for row in data:
                 if not row or not isinstance(row, list):
                     continue
-
                 first_cell = str(row[0]).strip().lower()
                 if first_cell in ["id", "ид", "идентификатор", ""]:
                     continue
-
                 clean_row = [str(cell).strip() for cell in row]
                 while len(clean_row) < len(SKUPKA_HEADERS):
                     clean_row.append("")
-
                 parsed_rows.append(clean_row[: len(SKUPKA_HEADERS)])
 
         df = pd.DataFrame(parsed_rows, columns=SKUPKA_HEADERS)
@@ -141,7 +168,6 @@ with col_btn_shop:
 
 st.markdown("---")
 
-# Кнопка синхронизации
 if st.button("🔄 Синхронизировать с Google Таблицей"):
     st.session_state["df_skupka_local"] = load_data_from_google()
     st.session_state["need_reload"] = False
@@ -171,7 +197,7 @@ if st.session_state["section"] == "repair":
             if submit_repair:
                 if client and phone and device:
                     current_time = now_msk_str()
-                    new_id = int(datetime.now().timestamp()) % 100000
+                    new_id = next_repair_id()
 
                     payload = {
                         "action": "append",
@@ -181,7 +207,7 @@ if st.session_state["section"] == "repair":
 
                     with st.spinner("Сохраняем ремонт в Google..."):
                         try:
-                            requests.post(API_URL, json=payload, timeout=3)
+                            requests.post(API_URL, json=payload, timeout=5)
                             st.success(f"Заказ №{new_id} успешно сохранен!")
                         except Exception:
                             st.success(f"Заказ №{new_id} отправлен в таблицу!")
@@ -219,27 +245,28 @@ else:
             if submit_buyout:
                 if model and price_buy > 0:
                     current_time = now_msk_str()
-                    new_id = int(datetime.now().timestamp()) % 100000
+                    new_id = next_shop_id(df_main)
 
+                    # row: 11 колонок
                     payload = {
                         "action": "append",
                         "sheet": "Скупка",
                         "row": [new_id, current_time, model, specs, price_buy, seller,
-                                "Подготовка к продаже", "", "", ""],
+                                "Подготовка к продаже", "", "", "", ""],
                     }
 
-                    new_row = [str(new_id), current_time, model, specs, str(price_buy),
-                               seller, "Подготовка к продаже", "", "", ""]
+                    new_row = [new_id, current_time, model, specs, str(price_buy),
+                               seller, "Подготовка к продаже", "", "", "", ""]
                     df_main.loc[len(df_main)] = new_row
                     st.session_state["df_skupka_local"] = df_main
 
                     with st.spinner("Записываем выкуп техники..."):
                         try:
-                            requests.post(API_URL, json=payload, timeout=3)
+                            requests.post(API_URL, json=payload, timeout=5)
                         except Exception:
                             pass
 
-                    st.success(f"Устройство №{new_id} успешно добавлено в подготовку!")
+                    st.success(f"Устройство №{new_id} добавлено в подготовку!")
                     st.rerun()
                 else:
                     st.error("Заполните модель/IMEI/SN и цену закупки!")
@@ -277,11 +304,30 @@ else:
                 )
                 selected_prep_id = options_prep[selected_prep]
 
-                price_sell_ready = st.number_input(
-                    "Установить цену продажи (руб.)",
-                    min_value=0,
-                    step=100,
-                    key="prep_price",
+                # Достаём закупочную цену выбранного товара
+                chosen_prep = in_prep[in_prep["ID"] == str(selected_prep_id).strip()]
+                buy_price_here = 0.0
+                if not chosen_prep.empty:
+                    buy_price_here = to_float(chosen_prep["Цена_Закупки"].values[0])
+
+                col_price, col_parts = st.columns(2)
+                with col_price:
+                    price_sell_ready = st.number_input(
+                        "Установить цену продажи (руб.)",
+                        min_value=0, step=100, key="prep_price",
+                    )
+                with col_parts:
+                    parts_cost_ready = st.number_input(
+                        "Стоимость запчастей (руб.)",
+                        min_value=0, step=100, key="prep_parts",
+                    )
+
+                est_profit = price_sell_ready - buy_price_here - parts_cost_ready
+                st.info(
+                    f"Выкуп: **{buy_price_here:.0f} ₽**  |  "
+                    f"Запчасти: **{parts_cost_ready:.0f} ₽**  |  "
+                    f"Продажа: **{price_sell_ready:.0f} ₽**  |  "
+                    f"Ожидаемая прибыль: **{est_profit:.0f} ₽**"
                 )
 
                 col1, col2 = st.columns(2)
@@ -289,11 +335,7 @@ else:
                 with col1:
                     if st.button("✅ Готов к продаже (На склад)"):
                         if price_sell_ready > 0:
-                            clean_id = (
-                                int(float(selected_prep_id))
-                                if selected_prep_id.replace(".", "", 1).isdigit()
-                                else selected_prep_id
-                            )
+                            clean_id = clean_id_for_api(selected_prep_id)
 
                             df_main.loc[
                                 df_main["ID"] == str(selected_prep_id).strip(), "Статус"
@@ -301,6 +343,9 @@ else:
                             df_main.loc[
                                 df_main["ID"] == str(selected_prep_id).strip(), "Цена_Продажи"
                             ] = str(price_sell_ready)
+                            df_main.loc[
+                                df_main["ID"] == str(selected_prep_id).strip(), "Стоимость_запчастей"
+                            ] = str(parts_cost_ready)
                             st.session_state["df_skupka_local"] = df_main
 
                             payload = {
@@ -309,11 +354,12 @@ else:
                                 "id": clean_id,
                                 "status": "На складе",
                                 "price_sell": price_sell_ready,
+                                "parts_cost": parts_cost_ready,
                             }
 
                             with st.spinner("Переносим на витрину склада..."):
                                 try:
-                                    requests.post(API_URL, json=payload, timeout=3)
+                                    requests.post(API_URL, json=payload, timeout=5)
                                 except Exception:
                                     pass
 
@@ -342,11 +388,13 @@ else:
 
                 stock_view = in_stock[
                     ["ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики",
-                     "Цена_Закупки", "Цена_Продажи"]
+                     "Цена_Закупки", "Стоимость_запчастей", "Цена_Продажи"]
                 ].copy()
 
                 stock_view["Прибыль"] = stock_view.apply(
-                    lambda r: to_float(r["Цена_Продажи"]) - to_float(r["Цена_Закупки"]),
+                    lambda r: to_float(r["Цена_Продажи"])
+                              - to_float(r["Цена_Закупки"])
+                              - to_float(r["Стоимость_запчастей"]),
                     axis=1,
                 )
 
@@ -370,27 +418,27 @@ else:
 
                 current_price = 0.0
                 current_buy = 0.0
+                current_parts = 0.0
                 if not chosen_row.empty:
                     current_price = to_float(chosen_row["Цена_Продажи"].values[0])
                     current_buy = to_float(chosen_row["Цена_Закупки"].values[0])
+                    current_parts = to_float(chosen_row["Стоимость_запчастей"].values[0])
 
                 final_price = st.number_input(
                     "Фактическая цена продажи (руб.)",
-                    min_value=0,
-                    step=100,
-                    value=int(current_price),
-                    key="sell_final_price",
+                    min_value=0, step=100,
+                    value=int(current_price), key="sell_final_price",
                 )
-
                 warranty = st.text_input(
                     "Срок гарантии (например: 14 дней, 30 дней, 1 год)",
                     key="sell_warranty",
                 )
 
-                profit_preview = final_price - current_buy
+                profit_preview = final_price - current_buy - current_parts
                 st.info(
-                    f"Цена выкупа: **{current_buy:.0f} ₽**  |  "
-                    f"Цена продажи: **{final_price:.0f} ₽**  |  "
+                    f"Выкуп: **{current_buy:.0f} ₽**  |  "
+                    f"Запчасти: **{current_parts:.0f} ₽**  |  "
+                    f"Продажа: **{final_price:.0f} ₽**  |  "
                     f"Прибыль: **{profit_preview:.0f} ₽**"
                 )
 
@@ -410,25 +458,13 @@ else:
                         elif not warranty.strip():
                             st.error("Укажите срок гарантии!")
                         else:
-                            clean_id = (
-                                int(float(selected_id))
-                                if str(selected_id).replace(".", "", 1).isdigit()
-                                else selected_id
-                            )
+                            clean_id = clean_id_for_api(selected_id)
                             sale_time = now_msk_str()
 
-                            df_main.loc[
-                                df_main["ID"] == str(selected_id).strip(), "Статус"
-                            ] = "Продано"
-                            df_main.loc[
-                                df_main["ID"] == str(selected_id).strip(), "Цена_Продажи"
-                            ] = str(final_price)
-                            df_main.loc[
-                                df_main["ID"] == str(selected_id).strip(), "Дата продажи"
-                            ] = sale_time
-                            df_main.loc[
-                                df_main["ID"] == str(selected_id).strip(), "Срок гарантии"
-                            ] = warranty.strip()
+                            df_main.loc[df_main["ID"] == str(selected_id).strip(), "Статус"] = "Продано"
+                            df_main.loc[df_main["ID"] == str(selected_id).strip(), "Цена_Продажи"] = str(final_price)
+                            df_main.loc[df_main["ID"] == str(selected_id).strip(), "Дата продажи"] = sale_time
+                            df_main.loc[df_main["ID"] == str(selected_id).strip(), "Срок гарантии"] = warranty.strip()
                             st.session_state["df_skupka_local"] = df_main
 
                             payload = {
@@ -443,7 +479,7 @@ else:
 
                             with st.spinner("Оформляем продажу..."):
                                 try:
-                                    requests.post(API_URL, json=payload, timeout=3)
+                                    requests.post(API_URL, json=payload, timeout=5)
                                 except Exception:
                                     pass
 
@@ -460,7 +496,7 @@ else:
         else:
             st.info("На складе пусто.")
 
-    # ---------- НОВАЯ ВКЛАДКА: ПРОДАЖИ ----------
+    # ---------- ПРОДАЖИ ----------
     with tab_sales:
         st.header("📈 Проданные товары")
 
@@ -472,64 +508,74 @@ else:
             if sold.empty:
                 st.info("Продаж ещё не было.")
             else:
-                # Считаем дату для фильтрации
-                sold["_sale_date"] = sold["Дата продажи"].apply(to_date)
+                # Безопасно парсим дату (пустые/битые -> NaT -> выбрасываем)
+                sold["_sale_date"] = pd.to_datetime(
+                    sold["Дата продажи"], errors="coerce"
+                ).dt.date
+                sold = sold.dropna(subset=["_sale_date"]).copy()
+
                 sold["_profit"] = sold.apply(
-                    lambda r: to_float(r["Цена_Продажи"]) - to_float(r["Цена_Закупки"]),
+                    lambda r: to_float(r["Цена_Продажи"])
+                              - to_float(r["Цена_Закупки"])
+                              - to_float(r["Стоимость_запчастей"]),
                     axis=1,
                 )
 
-                # Дефолтный период: от минимальной продажи до сегодня
-                valid_dates = sold["_sale_date"].dropna()
-                if not valid_dates.empty:
-                    min_d = valid_dates.min()
-                    max_d = valid_dates.max()
+                if sold.empty:
+                    st.info("Продаж ещё не было.")
                 else:
-                    min_d = max_d = date.today()
+                    min_d = sold["_sale_date"].min()
+                    max_d = sold["_sale_date"].max()
+                    today = date.today()
 
-                st.markdown("### 🗓 Период продаж")
-                col_d1, col_d2 = st.columns(2)
-                with col_d1:
-                    date_from = st.date_input(
-                        "С", value=min_d, key="sales_from"
-                    )
-                with col_d2:
-                    date_to = st.date_input(
-                        "По", value=max_d, key="sales_to"
-                    )
+                    st.markdown("### 🗓 Период продаж")
+                    col_d1, col_d2 = st.columns(2)
+                    with col_d1:
+                        date_from = st.date_input(
+                            "С",
+                            value=min_d,
+                            max_value=today,
+                            key="sales_from",
+                        )
+                    with col_d2:
+                        date_to = st.date_input(
+                            "По",
+                            value=max_d,
+                            max_value=today,
+                            key="sales_to",
+                        )
 
-                # Фильтруем
-                if date_from and date_to and date_from <= date_to:
-                    filtered = sold[
-                        (sold["_sale_date"] >= date_from)
-                        & (sold["_sale_date"] <= date_to)
-                    ].copy()
-                else:
-                    st.error("Дата 'С' должна быть раньше или равна дате 'По'.")
-                    filtered = sold.iloc[0:0].copy()
+                    if date_from > date_to:
+                        st.error("Дата «С» должна быть раньше или равна дате «По».")
+                    else:
+                        filtered = sold[
+                            (sold["_sale_date"] >= date_from)
+                            & (sold["_sale_date"] <= date_to)
+                        ].copy()
 
-                # Итоги
-                total_count = len(filtered)
-                total_buy = filtered["Цена_Закупки"].apply(to_float).sum()
-                total_sell = filtered["Цена_Продажи"].apply(to_float).sum()
-                total_profit = total_sell - total_buy
+                        if filtered.empty:
+                            st.warning("📭 Продаж не было — работай лучше! 💪")
+                        else:
+                            total_count = len(filtered)
+                            total_buy = float(filtered["Цена_Закупки"].apply(to_float).sum())
+                            total_parts = float(filtered["Стоимость_запчастей"].apply(to_float).sum())
+                            total_sell = float(filtered["Цена_Продажи"].apply(to_float).sum())
+                            total_profit = total_sell - total_buy - total_parts
 
-                m1, m2, m3, m4 = st.columns(4)
-                m1.metric("Продано, шт", total_count)
-                m2.metric("Сумма закупки", f"{total_buy:,.0f} ₽")
-                m3.metric("Сумма продаж", f"{total_sell:,.0f} ₽")
-                m4.metric("Чистая прибыль", f"{total_profit:,.0f} ₽")
+                            m1, m2, m3, m4, m5 = st.columns(5)
+                            m1.metric("Продано, шт", total_count)
+                            m2.metric("Закупка", f"{total_buy:,.0f} ₽")
+                            m3.metric("Запчасти", f"{total_parts:,.0f} ₽")
+                            m4.metric("Продажи", f"{total_sell:,.0f} ₽")
+                            m5.metric("Чистая прибыль", f"{total_profit:,.0f} ₽")
 
-                st.markdown("---")
-                st.markdown("### 📋 Детали продаж за период")
+                            st.markdown("---")
+                            st.markdown("### 📋 Детали продаж за период")
 
-                if filtered.empty:
-                    st.info("За выбранный период продаж нет.")
-                else:
-                    show = filtered[
-                        ["ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики",
-                         "Продавец", "Цена_Закупки", "Цена_Продажи",
-                         "Дата продажи", "Срок гарантии"]
-                    ].copy()
-                    show["Прибыль"] = filtered["_profit"].values
-                    st.dataframe(show, use_container_width=True, hide_index=True)
+                            show = filtered[
+                                ["ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики",
+                                 "Продавец", "Цена_Закупки", "Стоимость_запчастей",
+                                 "Цена_Продажи", "Дата продажи", "Срок гарантии"]
+                            ].copy()
+                            show["Прибыль"] = filtered["_profit"].values
+                            st.dataframe(show, use_container_width=True, hide_index=True)
