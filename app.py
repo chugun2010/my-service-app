@@ -9,7 +9,7 @@ st.set_page_config(page_title="Скупка & Repair", layout="wide")
 st.title("📱 Учет Скупки и Ремонта")
 
 # ТВОЙ АПИ-ШЛЮЗ НАСТОЯЩИЙ
-API_URL = "https://google.com"
+API_URL = "https://script.google.com/macros/s/AKfycbypt3LA1wLZZ-iitNH3x-3ElZrcMVuYm-7od43EQviYsuQcVGB6UV3YVu15tK1OOFnJ/exec"
 
 # 4 ВКЛАДКИ
 tab1, tab2, tab_prep, tab3 = st.tabs(["🔧 Приемка в ремонт", "💰 Скупка (Выкуп)", "🛠 Подготовка к продаже", "📦 Продажа со склада"])
