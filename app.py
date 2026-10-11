@@ -11,7 +11,6 @@ st.set_page_config(page_title="Батарейкин Сервис", layout="wide"
 st.markdown(
     """
     <style>
-    /* Активные кнопки (Ремонт / Магазин / категории) — САЛАТОВЫЕ */
     button[kind="primary"],
     button[data-testid="stBaseButton-primary"] {
         background-color: #B5E8A8 !important;
@@ -28,8 +27,6 @@ st.markdown(
     button[data-testid="stBaseButton-primary"] p {
         color: #1a3a1a !important;
     }
-
-    /* Кнопки-ссылки в шапке (Выйти, Синхронизация) */
     .hdr-btn {
         display: inline-block;
         padding: 6px 12px;
@@ -127,11 +124,21 @@ def clean_id_for_api(val):
 
 
 CATEGORIES = {
-    "Смартфоны": "S",
-    "ПК": "P",
-    "Комплектующие": "K",
-    "Электроника": "E",
+    "📱 Смартфоны": "S",
+    "🖥️ ПК": "P",
+    "🛒 Комплектующие": "K",
+    "🔋 Электроника": "E",
 }
+
+EMOJI_PREFIXES = ["📱 ", "🖥️ ", "🛒 ", "🔋 "]
+
+
+def strip_emoji(name: str) -> str:
+    """Убирает смайлик-префикс, чтобы получить реальное имя листа Google."""
+    for emoji in EMOJI_PREFIXES:
+        if name.startswith(emoji):
+            return name[len(emoji):]
+    return name
 
 
 def next_shop_id(df, prefix: str) -> str:
@@ -209,8 +216,9 @@ def show_flash():
 
 
 def load_data_from_google(sheet_name: str) -> pd.DataFrame:
+    clean_sheet = strip_emoji(sheet_name)
     try:
-        nocache_url = f"{API_URL}?sheet={sheet_name}&t={time.time()}"
+        nocache_url = f"{API_URL}?sheet={clean_sheet}&t={time.time()}"
         response = requests.get(nocache_url, timeout=5)
         data = response.json()
 
@@ -257,12 +265,11 @@ if st.query_params.get("sync") == "1":
 
 
 # ---------- ШАПКА ----------
-# ---------- ШАПКА ----------
 current_user = st.session_state.get("username", "")
 st.markdown(
     f"""
     <div style="padding:0 0 10px 0;">
-      <div style="font-size:28px; font-weight:700; margin-bottom:6px;">📱 Батарейкин Сервис</div>
+      <div style="font-size:44px; font-weight:800; margin-bottom:8px; letter-spacing:-0.5px;">📱 Батарейкин Сервис</div>
       <div style="display:flex; align-items:center; gap:10px;">
         <span style="color:#555; font-size:13px;">👤 Вошёл как: <b>{current_user}</b></span>
         <a href="?logout=1" class="hdr-btn" target="_self">🚪 Выйти</a>
@@ -366,6 +373,7 @@ else:
             st.session_state["df_cache"][current_cat] = df_main
 
         prefix = CATEGORIES[current_cat]
+        sheet_name_clean = strip_emoji(current_cat)
 
         tab2, tab_prep, tab3, tab_sales = st.tabs(
             ["💰 Скупка (Выкуп)", "🛠 Подготовка к продаже",
@@ -390,7 +398,7 @@ else:
 
                         payload = {
                             "action": "append",
-                            "sheet": current_cat,
+                            "sheet": sheet_name_clean,
                             "row": [new_id, current_time, model, specs, price_buy, seller,
                                     "Подготовка к продаже", "", "", "", ""],
                         }
@@ -490,7 +498,7 @@ else:
 
                                 payload = {
                                     "action": "update",
-                                    "sheet": current_cat,
+                                    "sheet": sheet_name_clean,
                                     "id": clean_id,
                                     "status": "На складе",
                                     "price_sell": price_sell_ready,
@@ -534,7 +542,7 @@ else:
 
                             payload = {
                                 "action": "update",
-                                "sheet": current_cat,
+                                "sheet": sheet_name_clean,
                                 "id": clean_id,
                                 "status": "Списано",
                             }
@@ -642,7 +650,7 @@ else:
 
                                 payload = {
                                     "action": "update",
-                                    "sheet": current_cat,
+                                    "sheet": sheet_name_clean,
                                     "id": clean_id,
                                     "status": "Продано",
                                     "price_sell": final_price,
@@ -670,7 +678,7 @@ else:
 
                             payload = {
                                 "action": "update",
-                                "sheet": current_cat,
+                                "sheet": sheet_name_clean,
                                 "id": clean_id,
                                 "status": "Подготовка к продаже",
                                 "price_sell": "",
@@ -699,7 +707,7 @@ else:
                             st.session_state["df_cache"][current_cat] = df_main
                             payload = {
                                 "action": "update",
-                                "sheet": current_cat,
+                                "sheet": sheet_name_clean,
                                 "id": clean_id,
                                 "status": "Списано",
                             }
