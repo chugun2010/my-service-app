@@ -31,6 +31,13 @@ def check_password() -> bool:
     return False
 
 
+# Обработка выхода через query param (для компактной кнопки-ссылки)
+if st.query_params.get("logout") == "1":
+    st.session_state["auth_ok"] = False
+    st.session_state["username"] = ""
+    st.query_params.clear()
+    st.rerun()
+
 if not check_password():
     st.stop()
 
@@ -192,14 +199,23 @@ with col_title:
     st.title("📱 Батарейкин Сервис")
     current_user = st.session_state.get("username", "")
     if current_user:
-        c_user, c_logout = st.columns([5, 1])
-        with c_user:
-            st.caption(f"👤 Вошёл как: **{current_user}**")
-        with c_logout:
-            if st.button("🚪 Выйти", key="logout_inline"):
-                st.session_state["auth_ok"] = False
-                st.session_state["username"] = ""
-                st.rerun()
+        st.markdown(
+            f"""
+            <div style="display: flex; align-items: center; gap: 10px; margin-top: -18px;">
+                <span style="color: #666; font-size: 14px;">👤 Вошёл как: <b>{current_user}</b></span>
+                <a href="?logout=1" target="_self" style="
+                    font-size: 12px;
+                    color: #666;
+                    text-decoration: none;
+                    padding: 2px 8px;
+                    border: 1px solid #ccc;
+                    border-radius: 6px;
+                    line-height: 1.4;
+                ">🚪 Выйти</a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 with col_btn_repair:
     if st.button(
