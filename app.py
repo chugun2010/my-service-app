@@ -7,6 +7,53 @@ import time
 
 st.set_page_config(page_title="Батарейкин Сервис", layout="wide")
 
+# ================== СТИЛИ ==================
+st.markdown(
+    """
+    <style>
+    /* Активные кнопки (Ремонт / Магазин / категории) — САЛАТОВЫЕ */
+    button[kind="primary"],
+    button[data-testid="stBaseButton-primary"] {
+        background-color: #B5E8A8 !important;
+        color: #1a3a1a !important;
+        border: 1px solid #8ED17E !important;
+    }
+    button[kind="primary"]:hover,
+    button[data-testid="stBaseButton-primary"]:hover {
+        background-color: #9DDD8C !important;
+        border: 1px solid #7BC56A !important;
+        color: #0d2a0d !important;
+    }
+    button[kind="primary"] p,
+    button[data-testid="stBaseButton-primary"] p {
+        color: #1a3a1a !important;
+    }
+
+    /* Кнопки-ссылки в шапке (Выйти, Синхронизация) */
+    .hdr-btn {
+        display: inline-block;
+        padding: 6px 12px;
+        font-size: 13px;
+        line-height: 1.2;
+        color: #444 !important;
+        text-decoration: none !important;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        background: #fafafa;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+    .hdr-btn:hover {
+        background: #efefef;
+        color: #000 !important;
+        border-color: #999;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+
 # ================== АВТОРИЗАЦИЯ ==================
 def check_password() -> bool:
     if st.session_state.get("auth_ok"):
@@ -194,40 +241,40 @@ def load_data_from_google(sheet_name: str) -> pd.DataFrame:
         return pd.DataFrame(columns=SHOP_HEADERS)
 
 
-# ---------- ШАПКА С НАВИГАЦИЕЙ ----------
-col_title, col_btn_repair, col_btn_shop = st.columns([5, 1, 1])
+# ================== ОБРАБОТКА ?sync=1 ==================
+if st.query_params.get("sync") == "1":
+    st.query_params.clear()
+    if st.session_state["section"] == "shop" and st.session_state.get("category"):
+        cat = st.session_state["category"]
+        with st.spinner(f"Обновляем «{cat}»..."):
+            st.session_state["df_cache"][cat] = load_data_from_google(cat)
+        flash("success", f"✅ Данные «{cat}» синхронизированы.")
+    elif st.session_state["section"] == "shop":
+        flash("info", "Сначала выберите категорию товара.")
+    else:
+        flash("info", "Синхронизация доступна в разделе «Магазин».")
+    st.rerun()
 
-with col_title:
-    st.title("📱 Батарейкин Сервис")
-    current_user = st.session_state.get("username", "")
-    if current_user:
-        c_user, c_logout, c_sync = st.columns([3, 1, 1])
-        with c_user:
-            st.markdown(
-                f'<div style="color: #666; font-size: 14px; padding-top: 6px;">'
-                f'👤 Вошёл как: <b>{current_user}</b></div>',
-                unsafe_allow_html=True,
-            )
-        with c_logout:
-            st.markdown(
-                '<a href="?logout=1" target="_self" style="'
-                'display: inline-block; font-size: 12px; color: #666; '
-                'text-decoration: none; padding: 4px 8px; border: 1px solid #ccc; '
-                'border-radius: 6px; line-height: 1.4;">🚪 Выйти</a>',
-                unsafe_allow_html=True,
-            )
-        with c_sync:
-            if st.button("🔄 Синхр.", key="sync_btn_header", help="Синхронизировать с Google Таблицей"):
-                if st.session_state["section"] == "shop" and st.session_state.get("category"):
-                    cat = st.session_state["category"]
-                    with st.spinner(f"Обновляем «{cat}»..."):
-                        st.session_state["df_cache"][cat] = load_data_from_google(cat)
-                    flash("success", f"✅ Данные «{cat}» синхронизированы.")
-                elif st.session_state["section"] == "shop":
-                    flash("info", "Сначала выберите категорию товара.")
-                else:
-                    flash("info", "Синхронизация доступна в разделе «Магазин».")
-                st.rerun()
+
+# ---------- ШАПКА ----------
+current_user = st.session_state.get("username", "")
+st.markdown(
+    f"""
+    <div style="display:flex; align-items:center; gap:10px; padding:0 0 10px 0;">
+      <div style="flex:1;">
+        <span style="font-size:28px; font-weight:700;">📱 Батарейкин Сервис</span>
+      </div>
+      <span style="color:#555; font-size:13px; white-space:nowrap;">
+        👤 Вошёл как: <b>{current_user}</b>
+      </span>
+      <a href="?logout=1" class="hdr-btn" target="_self">🚪 Выйти</a>
+      <a href="?sync=1" class="hdr-btn" target="_self">🔄 Синхронизация</a>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+col_spacer, col_btn_repair, col_btn_shop = st.columns([5, 1, 1])
 
 with col_btn_repair:
     if st.button(
@@ -300,7 +347,7 @@ if st.session_state["section"] == "repair":
                             requests.post(API_URL, json=payload, timeout=5)
                             flash("success", f"✅ Ремонт №{new_id} принят и сохранён.")
                         except Exception:
-                            flash("warning", f"⚠️ Ремонт №{new_id} сформирован, но, возможно, не ушёл в Google.")
+                            flash("warning", f"⚠️ Ремонт №{new_id} сформирован, но не ушёл в Google.")
 
                     st.rerun()
                 else:
