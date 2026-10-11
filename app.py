@@ -257,18 +257,17 @@ if st.query_params.get("sync") == "1":
 
 
 # ---------- ШАПКА ----------
+# ---------- ШАПКА ----------
 current_user = st.session_state.get("username", "")
 st.markdown(
     f"""
-    <div style="display:flex; align-items:center; gap:10px; padding:0 0 10px 0;">
-      <div style="flex:1;">
-        <span style="font-size:28px; font-weight:700;">📱 Батарейкин Сервис</span>
+    <div style="padding:0 0 10px 0;">
+      <div style="font-size:28px; font-weight:700; margin-bottom:6px;">📱 Батарейкин Сервис</div>
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="color:#555; font-size:13px;">👤 Вошёл как: <b>{current_user}</b></span>
+        <a href="?logout=1" class="hdr-btn" target="_self">🚪 Выйти</a>
+        <a href="?sync=1" class="hdr-btn" target="_self">🔄 Синхронизация</a>
       </div>
-      <span style="color:#555; font-size:13px; white-space:nowrap;">
-        👤 Вошёл как: <b>{current_user}</b>
-      </span>
-      <a href="?logout=1" class="hdr-btn" target="_self">🚪 Выйти</a>
-      <a href="?sync=1" class="hdr-btn" target="_self">🔄 Синхронизация</a>
     </div>
     """,
     unsafe_allow_html=True,
