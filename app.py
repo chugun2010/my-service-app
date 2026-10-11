@@ -186,19 +186,20 @@ def load_data_from_google() -> pd.DataFrame:
 
 
 # ---------- ШАПКА С НАВИГАЦИЕЙ ----------
-col_title, col_logout, col_btn_repair, col_btn_shop = st.columns([4, 1, 1, 1])
+col_title, col_btn_repair, col_btn_shop = st.columns([5, 1, 1])
 
 with col_title:
     st.title("📱 Батарейкин Сервис")
     current_user = st.session_state.get("username", "")
     if current_user:
-        st.caption(f"👤 Вошёл как: **{current_user}**")
-
-with col_logout:
-    if st.button("🚪 Выйти", use_container_width=True):
-        st.session_state["auth_ok"] = False
-        st.session_state["username"] = ""
-        st.rerun()
+        c_user, c_logout = st.columns([5, 1])
+        with c_user:
+            st.caption(f"👤 Вошёл как: **{current_user}**")
+        with c_logout:
+            if st.button("🚪 Выйти", key="logout_inline"):
+                st.session_state["auth_ok"] = False
+                st.session_state["username"] = ""
+                st.rerun()
 
 with col_btn_repair:
     if st.button(
