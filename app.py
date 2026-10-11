@@ -407,7 +407,7 @@ else:
                     key="confirm_wo_prep",
                 )
 
-                if st.button("❌ Списать в утиль"):
+                if st.button("❌ Списать в утиль", key="btn_wo_prep"):
                     if not confirm_wo_prep:
                         st.error("Поставьте галочку подтверждения списания.")
                     else:
@@ -609,7 +609,7 @@ else:
                     key="confirm_wo_stock",
                 )
 
-                if st.button("❌ Списать в утиль"):
+                if st.button("❌ Списать в утиль", key="btn_wo_stock"):
                     if not confirm_wo_stock:
                         st.error("Поставьте галочку подтверждения списания.")
                     else:
