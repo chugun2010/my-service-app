@@ -7,6 +7,34 @@ import time
 
 st.set_page_config(page_title="Батарейкин Сервис", layout="wide")
 
+# ================== АВТОРИЗАЦИЯ ==================
+def check_password() -> bool:
+    """Возвращает True, если логин и пароль верны."""
+    if st.session_state.get("auth_ok"):
+        return True
+
+    st.markdown("## 🔒 Вход в Батарейкин Сервис")
+
+    col1, col2 = st.columns([1, 2])
+    with col1:
+        username = st.text_input("Логин:", key="login_user")
+        pwd = st.text_input("Пароль:", type="password", key="login_pwd")
+        if st.button("Войти", use_container_width=True):
+            users = st.secrets.get("users", {})
+            if username in users and users[username] == pwd:
+                st.session_state["auth_ok"] = True
+                st.session_state["username"] = username
+                st.rerun()
+            else:
+                st.error("❌ Неверный логин или пароль.")
+
+    return False
+
+
+if not check_password():
+    st.stop()
+
+
 # === МОСКОВСКОЕ ВРЕМЯ ===
 MSK = ZoneInfo("Europe/Moscow")
 
@@ -158,10 +186,19 @@ def load_data_from_google() -> pd.DataFrame:
 
 
 # ---------- ШАПКА С НАВИГАЦИЕЙ ----------
-col_title, col_btn_repair, col_btn_shop = st.columns([5, 1, 1])
+col_title, col_logout, col_btn_repair, col_btn_shop = st.columns([4, 1, 1, 1])
 
 with col_title:
     st.title("📱 Батарейкин Сервис")
+    current_user = st.session_state.get("username", "")
+    if current_user:
+        st.caption(f"👤 Вошёл как: **{current_user}**")
+
+with col_logout:
+    if st.button("🚪 Выйти", use_container_width=True):
+        st.session_state["auth_ok"] = False
+        st.session_state["username"] = ""
+        st.rerun()
 
 with col_btn_repair:
     if st.button(
@@ -324,8 +361,10 @@ else:
 
                 chosen_prep = in_prep[in_prep["ID"] == str(selected_prep_id).strip()]
                 buy_price_here = 0.0
+                existing_parts = 0.0
                 if not chosen_prep.empty:
                     buy_price_here = to_float(chosen_prep["Цена_Закупки"].values[0])
+                    existing_parts = to_float(chosen_prep["Стоимость_запчастей"].values[0])
 
                 col_price, col_parts = st.columns(2)
                 with col_price:
@@ -334,15 +373,18 @@ else:
                         min_value=0, step=100, key="prep_price",
                     )
                 with col_parts:
-                    parts_cost_ready = st.number_input(
-                        "Стоимость запчастей (руб.)",
+                    parts_cost_add = st.number_input(
+                        "Добавить запчастей на сумму (руб.)",
                         min_value=0, step=100, key="prep_parts",
                     )
 
-                est_profit = price_sell_ready - buy_price_here - parts_cost_ready
+                total_parts = existing_parts + parts_cost_add
+                est_profit = price_sell_ready - buy_price_here - total_parts
                 st.info(
                     f"Выкуп: **{buy_price_here:.0f} ₽**  |  "
-                    f"Запчасти: **{parts_cost_ready:.0f} ₽**  |  "
+                    f"Запчасти уже: **{existing_parts:.0f} ₽**  |  "
+                    f"Добавляем: **{parts_cost_add:.0f} ₽**  |  "
+                    f"Итого запчастей: **{total_parts:.0f} ₽**  |  "
                     f"Продажа: **{price_sell_ready:.0f} ₽**  |  "
                     f"Ожидаемая прибыль: **{est_profit:.0f} ₽**"
                 )
@@ -362,7 +404,7 @@ else:
                             ] = str(price_sell_ready)
                             df_main.loc[
                                 df_main["ID"] == str(selected_prep_id).strip(), "Стоимость_запчастей"
-                            ] = str(parts_cost_ready)
+                            ] = str(total_parts)
                             st.session_state["df_skupka_local"] = df_main
 
                             payload = {
@@ -371,7 +413,7 @@ else:
                                 "id": clean_id,
                                 "status": "На складе",
                                 "price_sell": price_sell_ready,
-                                "parts_cost": parts_cost_ready,
+                                "parts_cost": total_parts,
                             }
 
                             with st.spinner("Переносим на витрину склада..."):
@@ -381,7 +423,7 @@ else:
                                         "success",
                                         f"✅ Товар №{selected_prep_id} перемещён на витрину. "
                                         f"Цена продажи: {price_sell_ready} ₽, "
-                                        f"запчасти: {parts_cost_ready} ₽.",
+                                        f"запчасти (итого): {total_parts:.0f} ₽.",
                                     )
                                 except Exception:
                                     flash(
