@@ -96,19 +96,15 @@ if "need_reload" not in st.session_state:
     st.session_state["need_reload"] = True
 if "section" not in st.session_state:
     st.session_state["section"] = "shop"
-
-# ← НОВОЕ: очередь флеш-сообщений
 if "flash" not in st.session_state:
-    st.session_state["flash"] = []   # список кортежей (тип, текст)
+    st.session_state["flash"] = []
 
 
 def flash(kind: str, text: str):
-    """kind: 'success' | 'info' | 'warning' | 'error'"""
     st.session_state["flash"].append((kind, text))
 
 
 def show_flash():
-    """Показывает все накопленные сообщения и очищает очередь."""
     for kind, text in st.session_state["flash"]:
         if kind == "success":
             st.success(text)
@@ -187,7 +183,6 @@ with col_btn_shop:
 
 st.markdown("---")
 
-# ← НОВОЕ: показываем накопленные уведомления СРАЗУ под шапкой
 show_flash()
 
 if st.button("🔄 Синхронизировать с Google Таблицей"):
@@ -306,7 +301,7 @@ else:
             else:
                 st.markdown("### 📋 Список устройств в работе:")
                 st.dataframe(
-                    in_prep[["ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики", "Цена_Закупки"]],
+                    in_prep[["ID", "Дата выкупа", "Модель/IMEI/SN", "Характеристики", "Цена_Закупки", "Стоимость_запчастей"]],
                     use_container_width=True,
                     hide_index=True,
                 )
@@ -402,6 +397,49 @@ else:
                 with col2:
                     if st.button("🖨 Печать этикетки штрих-кода"):
                         st.info("⏳ Функция печати в разработке. Скоро подключим!")
+
+                # --- ОПАСНЫЕ ДЕЙСТВИЯ НА ПОДГОТОВКЕ ---
+                st.markdown("---")
+                st.markdown("### ⚠️ Опасные действия")
+
+                confirm_wo_prep = st.checkbox(
+                    "Подтверждаю списание — товар уйдёт в утиль",
+                    key="confirm_wo_prep",
+                )
+
+                if st.button("❌ Списать в утиль"):
+                    if not confirm_wo_prep:
+                        st.error("Поставьте галочку подтверждения списания.")
+                    else:
+                        clean_id = clean_id_for_api(selected_prep_id)
+
+                        df_main.loc[
+                            df_main["ID"] == str(selected_prep_id).strip(), "Статус"
+                        ] = "Списано"
+                        st.session_state["df_skupka_local"] = df_main
+
+                        payload = {
+                            "action": "update",
+                            "sheet": "Скупка",
+                            "id": clean_id,
+                            "status": "Списано",
+                        }
+
+                        with st.spinner("Списываем в утиль..."):
+                            try:
+                                requests.post(API_URL, json=payload, timeout=5)
+                                flash(
+                                    "warning",
+                                    f"❌ Товар №{selected_prep_id} списан в утиль.",
+                                )
+                            except Exception:
+                                flash(
+                                    "warning",
+                                    f"⚠️ Товар №{selected_prep_id} обновлён локально, "
+                                    f"но не ушёл в Google. Проверь таблицу.",
+                                )
+
+                        st.rerun()
         else:
             st.info("На подготовке пока пусто.")
 
@@ -526,8 +564,88 @@ else:
                             st.rerun()
 
                 with col2:
-                    if st.button("🖨 Печать квитанции"):
-                        st.info("⏳ Функция печати квитанции в разработке. Скоро подключим!")
+                    if st.button("⬅️ Обратно на подготовку"):
+                        clean_id = clean_id_for_api(selected_id)
+
+                        df_main.loc[
+                            df_main["ID"] == str(selected_id).strip(), "Статус"
+                        ] = "Подготовка к продаже"
+                        df_main.loc[
+                            df_main["ID"] == str(selected_id).strip(), "Цена_Продажи"
+                        ] = ""
+                        st.session_state["df_skupka_local"] = df_main
+
+                        payload = {
+                            "action": "update",
+                            "sheet": "Скупка",
+                            "id": clean_id,
+                            "status": "Подготовка к продаже",
+                            "price_sell": "",
+                        }
+
+                        with st.spinner("Возвращаем товар на подготовку..."):
+                            try:
+                                requests.post(API_URL, json=payload, timeout=5)
+                                flash(
+                                    "info",
+                                    f"⬅️ Товар №{selected_id} возвращён на подготовку. "
+                                    f"Цена продажи сброшена — назначь заново.",
+                                )
+                            except Exception:
+                                flash(
+                                    "warning",
+                                    f"⚠️ Товар №{selected_id} обновлён локально, "
+                                    f"но не ушёл в Google. Проверь таблицу.",
+                                )
+
+                        st.rerun()
+
+                # --- ОПАСНЫЕ ДЕЙСТВИЯ НА СКЛАДЕ ---
+                st.markdown("---")
+                st.markdown("### ⚠️ Опасные действия")
+
+                confirm_wo_stock = st.checkbox(
+                    "Подтверждаю списание — товар уйдёт в утиль",
+                    key="confirm_wo_stock",
+                )
+
+                if st.button("❌ Списать в утиль"):
+                    if not confirm_wo_stock:
+                        st.error("Поставьте галочку подтверждения списания.")
+                    else:
+                        clean_id = clean_id_for_api(selected_id)
+
+                        df_main.loc[
+                            df_main["ID"] == str(selected_id).strip(), "Статус"
+                        ] = "Списано"
+                        st.session_state["df_skupka_local"] = df_main
+
+                        payload = {
+                            "action": "update",
+                            "sheet": "Скупка",
+                            "id": clean_id,
+                            "status": "Списано",
+                        }
+
+                        with st.spinner("Списываем в утиль..."):
+                            try:
+                                requests.post(API_URL, json=payload, timeout=5)
+                                flash(
+                                    "warning",
+                                    f"❌ Товар №{selected_id} списан в утиль.",
+                                )
+                            except Exception:
+                                flash(
+                                    "warning",
+                                    f"⚠️ Товар №{selected_id} обновлён локально, "
+                                    f"но не ушёл в Google. Проверь таблицу.",
+                                )
+
+                        st.rerun()
+
+                st.markdown("---")
+                if st.button("🖨 Печать квитанции"):
+                    st.info("⏳ Функция печати квитанции в разработке. Скоро подключим!")
         else:
             st.info("На складе пусто.")
 
